@@ -139,13 +139,21 @@ if (!window.__foxnav) (function(){
     list.forEach(function(e) {
       if (e === cur || cur.contains(e) || e.contains(cur)) return;
       var r = rect(e), main, gap;
-      if (dir === 'down') { main = r.t - c.b; if ((r.t + r.b) / 2 <= cy) return; gap = Math.max(0, r.l - c.r, c.l - r.r); }
-      if (dir === 'up') { main = c.t - r.b; if ((r.t + r.b) / 2 >= cy) return; gap = Math.max(0, r.l - c.r, c.l - r.r); }
-      if (dir === 'right') { main = r.l - c.r; if ((r.l + r.r) / 2 <= cx) return; gap = Math.max(0, r.t - c.b, c.t - r.b); }
-      if (dir === 'left') { main = c.l - r.r; if ((r.l + r.r) / 2 >= cx) return; gap = Math.max(0, r.t - c.b, c.t - r.b); }
-      var r2 = rect(e), ex = (r2.l + r2.r) / 2, ey = (r2.t + r2.b) / 2;
-      var centre = (dir === 'up' || dir === 'down') ? Math.abs(ey - cy) : Math.abs(ex - cx);
-      var score = Math.max(main, 0) + gap * 3 + centre * 0.1;
+      // Кандидат должен лежать именно в направлении движения: его ближний край — за дальним краем
+      // текущего (допускаем перекрытие до четверти размера). Иначе соседний ряд, сдвинутый на пару
+      // пикселей, считался бы «справа» — и вправо шло бы лесенкой вниз.
+      var cw = c.r - c.l, ch = c.b - c.t, rw = r.r - r.l, rh = r.b - r.t;
+      var tolX = Math.min(cw, rw) * 0.25, tolY = Math.min(ch, rh) * 0.25;
+      var ex = (r.l + r.r) / 2, ey = (r.t + r.b) / 2, cross;
+      if (dir === 'down') { main = r.t - c.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = Math.abs(ex - cx); }
+      if (dir === 'up') { main = c.t - r.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = Math.abs(ex - cx); }
+      if (dir === 'right') { main = r.l - c.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = Math.abs(ey - cy); }
+      if (dir === 'left') { main = c.l - r.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = Math.abs(ey - cy); }
+      // Влево/вправо — только в пределах «ряда»: в конце ряда рамка остаётся на месте,
+      // а не прыгает на далёкий элемент ниже (например, кнопки «Поделиться» под списком серий)
+      if ((dir === 'left' || dir === 'right') && gap > Math.max(ch, rh) * 1.5) return;
+      // Ближе по направлению, без зазора поперёк, при равенстве — ровнее по центру
+      var score = Math.max(main, 0) + gap * 3 + cross * 0.1;
       if (score < bestScore) { bestScore = score; best = e; }
     });
     return best;
