@@ -152,14 +152,41 @@ if (!window.__foxnav) (function(){
       if (dir === 'up') { main = c.t - r.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = crossV; }
       if (dir === 'right') { main = r.l - c.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = crossH; }
       if (dir === 'left') { main = c.l - r.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = crossH; }
-      // Влево/вправо — только в пределах «ряда»: в конце ряда рамка остаётся на месте,
-      // а не прыгает на далёкий элемент ниже (например, кнопки «Поделиться» под списком серий)
-      if ((dir === 'left' || dir === 'right') && gap > Math.max(ch, rh) * 1.5) return;
+      // Влево/вправо — только в пределах ряда (элементы пересекаются по высоте). Переход на соседний
+      // ряд делает wrap() внутри того же списка; иначе с конца ряда рамка прыгала бы по диагонали
+      // в соседний ряд или на далёкие кнопки ниже.
+      if ((dir === 'left' || dir === 'right') && gap > 0) return;
       // Ближе по направлению, без зазора поперёк, при равенстве — ровнее по центру
       var score = Math.max(main, 0) + gap * 3 + cross * 0.1;
       if (score < bestScore) { bestScore = score; best = e; }
     });
     return best;
+  }
+
+  // Перенос по рядам внутри одного списка (например, серии): вправо с конца ряда — на начало
+  // следующего, влево с начала ряда — на конец предыдущего. Список — ближайший предок текущего
+  // элемента, в котором есть другие кандидаты.
+  function wrap(dir, list) {
+    var group = null;
+    for (var p = cur.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (list.some(function(e) { return e !== cur && p.contains(e); })) { group = p; break; }
+    }
+    if (!group) return null;
+    var c = rect(cur), ch = c.b - c.t, best = null;
+    list.forEach(function(e) {
+      if (e === cur || !group.contains(e)) return;
+      var r = rect(e), tol = Math.min(ch, r.b - r.t) * 0.5;
+      if (dir === 'right') {
+        if (r.t < c.b - tol) return; // только ряды ниже
+        // Ближайший ряд ниже, в нём — самый левый
+        if (!best || r.t < best.r.t - tol || (Math.abs(r.t - best.r.t) <= tol && r.l < best.r.l)) best = { e: e, r: r };
+      } else {
+        if (r.b > c.t + tol) return; // только ряды выше
+        // Ближайший ряд выше, в нём — самый правый
+        if (!best || r.b > best.r.b + tol || (Math.abs(r.b - best.r.b) <= tol && r.r > best.r.r)) best = { e: e, r: r };
+      }
+    });
+    return best ? best.e : null;
   }
 
   function first(list) {
@@ -193,7 +220,8 @@ if (!window.__foxnav) (function(){
         return f && isPlayer(f) ? 'player' : 'ok';
       }
       var popup = popupOf(cur);
-      var next = pick(dir, candidates(popup));
+      var list = candidates(popup);
+      var next = pick(dir, list) || ((dir === 'left' || dir === 'right') ? wrap(dir, list) : null);
       if (next) { set(next); return isPlayer(next) ? 'player' : 'ok'; }
       if (!popup && (dir === 'down' || dir === 'up')) scrollBy(0, (dir === 'down' ? 1 : -1) * innerHeight * 0.6);
       return 'none';

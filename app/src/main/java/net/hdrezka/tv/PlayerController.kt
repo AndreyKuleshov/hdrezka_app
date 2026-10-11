@@ -569,12 +569,20 @@ class PlayerController(
         private const val SCRUB_REPEAT_MS = 150L
 
         /**
-         * Страница сериала: плеер с сериями — сразу под постером и заголовком,
+         * Подстройка страниц сайта под TV: скрыть «Поделиться»; на странице сериала плеер с сериями —
+         * сразу под постером и заголовком,
          * а информация, актёры, рейтинги и описание — ниже плеера.
          * Блоки из CSS-сетки .full_grid переносятся в отдельный контейнер после плеера.
          */
         private const val REORDER_JS = """
 (function(){
+  // Блок «Поделиться с друзьями» на TV не нужен
+  if (!document.getElementById('__foxhide')) {
+    var hide = document.createElement('style');
+    hide.id = '__foxhide';
+    hide.textContent = '.share-btns{display:none !important;}';
+    (document.head || document.documentElement).appendChild(hide);
+  }
   var grid = document.querySelector('.full_grid'), player = document.querySelector('.full_player');
   if (!grid || !player || grid.getAttribute('data-fox-reordered')) return;
   var moved = ['.full_content-info', '.full_content-actions', '.full_story']
