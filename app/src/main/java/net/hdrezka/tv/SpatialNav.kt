@@ -263,7 +263,20 @@ if (!window.__foxnav) (function(){
     cur = e;
     if (!e) return;
     e.classList.add(CLS);
-    e.scrollIntoView({ block: 'center', inline: 'nearest' });
+    reveal(e);
+  }
+
+  // Прокрутка к выбранному элементу без «дёрганья»: страницу двигаем, только если элемент у края
+  // экрана или за ним, и ровно настолько, чтобы он был виден с отступом. Раньше элемент всегда
+  // ставился в центр — у карточек разной высоты центр «прыгал» даже при переходе по ряду.
+  function reveal(e) {
+    // Внутри прокручиваемых списков (выпадающий список, меню) — минимальная прокрутка самого списка
+    if (popupOf(e)) e.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    var r = e.getBoundingClientRect(), m = innerHeight * 0.12, dy = 0;
+    if (r.height > innerHeight - 2 * m) dy = r.top - m;           // выше экрана — к верхнему краю
+    else if (r.top < m) dy = r.top - m;                           // у верхнего края — чуть вниз
+    else if (r.bottom > innerHeight - m) dy = r.bottom - (innerHeight - m); // у нижнего — чуть вверх
+    if (Math.abs(dy) > 1) scrollBy({ top: dy, behavior: 'smooth' });
   }
 
   window.__foxnav = {
