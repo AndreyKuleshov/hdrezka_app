@@ -72,6 +72,11 @@ if (!window.__foxnav) (function(){
 
   var SEL = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=link],' +
     '[role=option],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
+  // Элементы, которые стрелками не выделяются (как будто их нет): логотипы, обложка на странице
+  // сериала, служебные ссылки в подвале. Мышью/air mouse они по-прежнему нажимаются.
+  var SKIP = 'a.logotype, .footer-menu a';
+  var SKIP_AREAS = '.full_content-poster';
+  function skipped(e) { return e.matches(SKIP) || !!e.closest(SKIP_AREAS); }
   var cur = null, owner = null; // owner — элемент, открывший выпадающий список/окно
   var opened = null;             // список/окно, появившееся после нашего нажатия OK
   function visiblePopups() { return [].filter.call(document.querySelectorAll(POPUP), function(p) { return visible(p); }); }
@@ -109,6 +114,7 @@ if (!window.__foxnav) (function(){
     var vpArea = innerWidth * innerHeight, set = new Set(), out = [];
     for (var i = 0; i < all.length; i++) {
       var e = all[i];
+      if (skipped(e)) continue;
       if (e.matches(SEL) || (pointer(e) && !(e.parentElement && pointer(e.parentElement)))) set.add(e);
     }
     // Плеер — одна точка навигации; его внутренние элементы не обходим (ими управляет панель плеера)
@@ -165,8 +171,9 @@ if (!window.__foxnav) (function(){
 
   function rect(e) { var r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }
 
+  var ROW_TOL = 24; // CSS px: элементы, чей верх в пределах этого от ближайшего, считаются одним рядом
   function pick(dir, list) {
-    var c = rect(cur), best = null, bestScore = Infinity;
+    var c = rect(cur), best = null, bestScore = Infinity, scored = [];
     var cx = (c.l + c.r) / 2, cy = (c.t + c.b) / 2;
     list.forEach(function(e) {
       if (e === cur || cur.contains(e) || e.contains(cur)) return;
@@ -190,8 +197,15 @@ if (!window.__foxnav) (function(){
       if ((dir === 'left' || dir === 'right') && gap > 0) return;
       // Ближе по направлению, без зазора поперёк, при равенстве — ровнее по центру
       var score = Math.max(main, 0) + gap * 3 + cross * 0.1;
-      if (score < bestScore) { bestScore = score; best = e; }
+      scored.push({ e: e, main: Math.max(main, 0), score: score });
     });
+    // Вверх/вниз: сначала ближайший ряд, затем лучший элемент в нём. Иначе широкий элемент прямо
+    // под текущим (плеер) обгонял бы ближний ряд, сдвинутый вбок (озвучки под «Смотреть трейлер»).
+    if ((dir === 'up' || dir === 'down') && scored.length) {
+      var nearest = Math.min.apply(null, scored.map(function(x) { return x.main; }));
+      scored = scored.filter(function(x) { return x.main <= nearest + ROW_TOL; });
+    }
+    scored.forEach(function(x) { if (x.score < bestScore) { bestScore = x.score; best = x.e; } });
     return best;
   }
 
