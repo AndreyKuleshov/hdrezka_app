@@ -4,4 +4,11 @@
     <string name="load_error">Не удалось загрузить страницу. Нажмите OK для повтора.</string>
     <string name="mode_cursor">Режим: курсор</string>
     <string name="mode_dpad">Режим: стрелки (фокус)</string>
+    <string name="menu_title">Разделы</string>
+    <string name="menu_home">Главная</string>
+    <string name="menu_back">← Назад</string>
+    <string name="menu_reload">Обновить страницу</string>
+    <string name="menu_cursor_on">Режим: курсор (переключить на стрелки)</string>
+    <string name="menu_cursor_off">Режим: стрелки (переключить на курсор)</string>
+    <string name="menu_empty">Разделы появятся после загрузки страницы сайта</string>
 </resources>

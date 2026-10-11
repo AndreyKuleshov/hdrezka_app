@@ -17,7 +17,9 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
@@ -37,6 +39,9 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var lastBackPress = 0L
+    private lateinit var menuPanel: MenuPanel
+    private var sections: List<Section> = emptyList()
+    private var swallowOk = false // долгое OK открыло меню — гасим остаток нажатия
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
     private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
@@ -53,6 +58,8 @@ class MainActivity : AppCompatActivity() {
         progress = findViewById(R.id.progress)
         errorView = findViewById(R.id.errorView)
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
+        menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
+        sections = MenuPanel.parse(prefs.getString(KEY_SECTIONS, null))
 
         cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, true)
 
@@ -91,7 +98,10 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 // Запоминаем только страницы самого сайта, чтобы не открывать рекламу при запуске
-                if (isSameSite(Uri.parse(url))) prefs.edit().putString(KEY_LAST_URL, url).apply()
+                if (isSameSite(Uri.parse(url))) {
+                    prefs.edit().putString(KEY_LAST_URL, url).apply()
+                    collectSections()
+                }
                 CookieManager.getInstance().flush()
             }
 
@@ -135,6 +145,7 @@ class MainActivity : AppCompatActivity() {
                     callback.onCustomViewHidden()
                     return
                 }
+                closeMenu()
                 customView = view
                 customViewCallback = callback
                 fullscreenContainer.addView(view, FrameLayout.LayoutParams(-1, -1))
@@ -150,6 +161,7 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             when {
+                menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
                 webView.canGoBack() -> webView.goBack()
                 System.currentTimeMillis() - lastBackPress < 2000 -> finish()
@@ -163,6 +175,38 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: BuildConfig.START_URL)
         }
+        webView.requestFocus()
+    }
+
+    /** Обновить список разделов из меню текущей страницы сайта. */
+    private fun collectSections() {
+        webView.evaluateJavascript(MenuPanel.EXTRACT_JS) { result ->
+            val found = MenuPanel.parse(result)
+            if (found.isNotEmpty()) {
+                sections = found
+                prefs.edit().putString(KEY_SECTIONS, MenuPanel.toJson(found)).apply()
+            }
+        }
+    }
+
+    private fun openMenu() {
+        if (customView != null || menuPanel.isOpen) return
+        cursorLayout.suspended = true
+        val home = Section(getString(R.string.menu_home), BuildConfig.START_URL, 0)
+        val list = listOf(home) + sections.filterNot { it.url.trimEnd('/') == home.url.trimEnd('/') }
+        val actions = buildList {
+            if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
+            add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
+            val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
+            add(MenuPanel.Action(getString(modeTitle)) { closeMenu(); toggleCursor() })
+        }
+        menuPanel.open(list, { closeMenu(); webView.loadUrl(it.url) }, actions)
+    }
+
+    private fun closeMenu() {
+        if (!menuPanel.isOpen) return
+        menuPanel.close()
+        cursorLayout.suspended = false
         webView.requestFocus()
     }
 
@@ -203,12 +247,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleLongOk(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
-                // Меню / кнопка «Настройки» — переключение курсор ↔ обычная навигация стрелками
+                // Меню / «Настройки» — панель разделов
                 KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> {
-                    toggleCursor(); return true
+                    if (menuPanel.isOpen) closeMenu() else openMenu()
+                    return true
                 }
+            }
+            // Пока открыта панель, остальные кнопки — обычная навигация по её пунктам
+            if (menuPanel.isOpen) return super.dispatchKeyEvent(event)
+            when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { mediaJs("v.paused ? v.play() : v.pause()"); return true }
                 KeyEvent.KEYCODE_MEDIA_PLAY -> { mediaJs("v.play()"); return true }
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> { mediaJs("v.pause()"); return true }
@@ -228,6 +278,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Долгое нажатие OK открывает панель разделов (на многих пультах нет кнопки Menu). */
+    private fun handleLongOk(event: KeyEvent): Boolean {
+        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        if (!isOk) return false
+        if (swallowOk) {
+            if (event.action == KeyEvent.ACTION_UP) swallowOk = false
+            return true
+        }
+        val longPress = event.isLongPress || event.repeatCount >= LONG_PRESS_REPEATS
+        if (event.action == KeyEvent.ACTION_DOWN && longPress && !menuPanel.isOpen && customView == null) {
+            swallowOk = true
+            openMenu()
+            return true
+        }
+        return false
     }
 
     /**
@@ -279,5 +347,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_CURSOR = "cursor_enabled"
+        private const val KEY_SECTIONS = "sections"
+        private const val LONG_PRESS_REPEATS = 10
     }
 }

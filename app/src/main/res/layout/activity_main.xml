@@ -32,6 +32,26 @@
         android:textSize="22sp"
         android:visibility="gone" />
 
+    <!-- Панель разделов: открывается кнопкой Menu или долгим нажатием OK -->
+    <ScrollView
+        android:id="@+id/menuPanel"
+        android:layout_width="400dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="#F2141418"
+        android:elevation="8dp"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/menuItems"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="24dp" />
+    </ScrollView>
+
     <FrameLayout
         android:id="@+id/fullscreenContainer"
         android:layout_width="match_parent"

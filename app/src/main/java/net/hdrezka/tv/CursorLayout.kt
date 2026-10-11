@@ -35,6 +35,17 @@ class CursorLayout @JvmOverloads constructor(
             invalidate()
         }
 
+    /** Временно отключить курсор (открыта панель разделов): клавиши идут в обычную навигацию. */
+    var suspended = false
+        set(value) {
+            field = value
+            stopMovement()
+            okDown = false
+            invalidate()
+        }
+
+    private val active get() = cursorEnabled && !suspended
+
     private val density = resources.displayMetrics.density
     private val radius = 12f * density
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 106, 0) }
@@ -54,6 +65,7 @@ class CursorLayout @JvmOverloads constructor(
     private var dirY = 0
     private var moveStart = 0L
     private var lastFrame = 0L
+    private var okDown = false
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -164,7 +176,7 @@ class CursorLayout @JvmOverloads constructor(
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (!cursorEnabled) return super.dispatchKeyEvent(event)
+        if (!active) return super.dispatchKeyEvent(event)
         val down = event.action == KeyEvent.ACTION_DOWN
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> setDir(down, -1, 0, event)
@@ -176,7 +188,13 @@ class CursorLayout @JvmOverloads constructor(
                 if (event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER && isFullKeyboard(event)) {
                     return super.dispatchKeyEvent(event)
                 }
-                if (down && event.repeatCount == 0) click()
+                // Клик на отпускании: долгое нажатие OK открывает панель разделов (MainActivity)
+                if (down) {
+                    if (event.repeatCount == 0) okDown = true
+                } else if (okDown) {
+                    okDown = false
+                    click()
+                }
             }
             else -> return super.dispatchKeyEvent(event)
         }
@@ -233,7 +251,7 @@ class CursorLayout @JvmOverloads constructor(
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
-        if (cursorEnabled && cx >= 0) {
+        if (active && cx >= 0) {
             canvas.drawCircle(cx, cy, radius, fillPaint)
             canvas.drawCircle(cx, cy, radius, strokePaint)
         }
