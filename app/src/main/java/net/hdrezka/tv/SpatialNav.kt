@@ -74,14 +74,25 @@ if (!window.__foxnav) (function(){
     '[role=option],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
   // Элементы, которые стрелками не выделяются (как будто их нет): логотипы, обложка на странице
   // сериала, служебные ссылки в подвале. Мышью/air mouse они по-прежнему нажимаются.
-  var SKIP = 'a.logotype, .footer-menu a';
+  var SKIP = 'a.logotype, .footer-menu a, a.menu-item'; // a.menu-item — заголовки разделов в меню сайта
   var SKIP_AREAS = '.full_content-poster';
   function skipped(e) { return e.matches(SKIP) || !!e.closest(SKIP_AREAS); }
   var cur = null, owner = null; // owner — элемент, открывший выпадающий список/окно
   var opened = null;             // список/окно, появившееся после нашего нажатия OK
-  function visiblePopups() { return [].filter.call(document.querySelectorAll(POPUP), function(p) { return visible(p); }); }
+  function closeButton(popup) {
+    var pr = popup.getBoundingClientRect(), best = null;
+    [].forEach.call(popup.querySelectorAll('button,[class*=close],[aria-label*=close i],[aria-label*=закры i]'), function(b) {
+      var r = b.getBoundingClientRect();
+      if (r.width < 8 || r.width > 100 || r.height > 100) return;
+      var named = /close|закры/i.test(String(b.className) + ' ' + (b.getAttribute('aria-label') || ''));
+      var corner = r.top < pr.top + Math.max(100, pr.height * 0.2) && r.right > pr.right - Math.max(100, pr.width * 0.2);
+      if (named || corner) best = best || b;
+    });
+    return best;
+  }
+    function visiblePopups() { return [].filter.call(document.querySelectorAll(POPUP), function(p) { return visible(p); }); }
   // Открытые выпадающие списки и окна: стрелки не выходят за их пределы
-  var POPUP = '.ss-content,[role=listbox],[role=dialog],[role=menu],[aria-modal=true],.modal,.dropdown-menu,.popup';
+  var POPUP = '.ss-content,#main_menu,[role=listbox],[role=dialog],[role=menu],[aria-modal=true],.modal,.dropdown-menu,.popup'; // #main_menu — меню сайта (☰)
 
   function popupOf(e) {
     var p = e && e.closest ? e.closest(POPUP) : null;
@@ -319,7 +330,12 @@ if (!window.__foxnav) (function(){
       // Если Escape не помог — повторный клик по владельцу (так закрывается SlimSelect)
       // (SlimSelect уже закрыт через API, а клик во время анимации закрытия открыл бы его снова)
       if (!popup.classList.contains('ss-content')) {
-        setTimeout(function() { if (visible(popup) && o && o.isConnected) o.click(); }, 600);
+        setTimeout(function() {
+          if (!visible(popup)) return;
+          // Кнопка закрытия окна («×» в правом верхнем углу), иначе — повторный клик по открывшему
+          var close = closeButton(popup);
+          if (close) close.click(); else if (o && o.isConnected) o.click();
+        }, 600);
       }
       return true;
     }
