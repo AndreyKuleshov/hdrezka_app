@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var lastBackPress = 0L
+    private var clearHistoryOnLoad = false
     private lateinit var menuPanel: MenuPanel
     private var sections: List<Section> = emptyList()
     private var swallowOk = false // долгое OK открыло меню — гасим остаток нажатия
@@ -109,6 +110,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
+                if (clearHistoryOnLoad && isHomePage(url)) {
+                    clearHistoryOnLoad = false
+                    view.clearHistory()
+                }
                 // Запоминаем только страницы самого сайта, чтобы не открывать рекламу при запуске
                 if (isSameSite(Uri.parse(url))) {
                     prefs.edit().putString(KEY_LAST_URL, url).apply()
@@ -195,6 +200,13 @@ class MainActivity : AppCompatActivity() {
     private fun navigateBack() {
         when {
             webView.canGoBack() -> webView.goBack()
+            // Истории нет (например, приложение открылось сразу на сериале) — на главную, а не выход
+            !isHomePage(webView.url) -> {
+                // После загрузки главной очищаем историю, иначе «Назад» с неё вернул бы сюда же
+                clearHistoryOnLoad = true
+                webView.loadUrl(BuildConfig.START_URL)
+            }
+            // Выход — только с главной, двойным «Назад»
             System.currentTimeMillis() - lastBackPress < 2000 -> finish()
             else -> {
                 lastBackPress = System.currentTimeMillis()
@@ -245,7 +257,12 @@ class MainActivity : AppCompatActivity() {
         return scheme != "http" && scheme != "https"
     }
 
-    private fun isSameSite(url: Uri): Boolean {
+    private fun isHomePage(url: String?): Boolean {
+        val u = Uri.parse(url ?: return true)
+        return isSameSite(u) && (u.path.isNullOrEmpty() || u.path == "/")
+    }
+
+        private fun isSameSite(url: Uri): Boolean {
         val host = url.host ?: return false
         return host == siteHost || host.endsWith(".$siteHost")
     }

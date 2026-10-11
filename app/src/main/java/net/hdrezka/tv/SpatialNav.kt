@@ -126,6 +126,38 @@ if (!window.__foxnav) (function(){
       }
       out.push(e);
     });
+    return mergeCards(out, vpArea);
+  }
+
+  // Карточка: несколько ссылок на одну и ту же страницу (обложка и название) — одна точка обхода.
+  // Рамка — на всю карточку (общий предок ссылок), OK — касание первой ссылки (обложки).
+  function mergeCards(list, vpArea) {
+    var groups = {};
+    list.forEach(function(e) {
+      if (e.tagName !== 'A' || !e.href) return;
+      (groups[e.href] = groups[e.href] || []).push(e);
+    });
+    var replace = new Map();
+    Object.keys(groups).forEach(function(href) {
+      var g = groups[href];
+      if (g.length < 2) return;
+      var box = g[0].parentElement;
+      while (box && !g.every(function(e) { return box.contains(e); })) box = box.parentElement;
+      if (!box || box === document.body) return;
+      var r = box.getBoundingClientRect();
+      if (r.width * r.height > vpArea * 0.25) return;
+      // В карточке не должно быть других кликабельных элементов, иначе они стали бы недоступны
+      var others = list.some(function(e) { return g.indexOf(e) < 0 && box.contains(e); });
+      if (others) return;
+      box.__foxTarget = g[0];
+      g.forEach(function(e, i) { replace.set(e, i === 0 ? box : null); });
+    });
+    if (!replace.size) return list;
+    var out = [];
+    list.forEach(function(e) {
+      if (!replace.has(e)) out.push(e);
+      else if (replace.get(e)) out.push(replace.get(e));
+    });
     return out;
   }
 
@@ -235,6 +267,8 @@ if (!window.__foxnav) (function(){
       if (!cur || !cur.isConnected || !visible(cur)) return null;
       if (isPlayer(cur)) return { player: true };
       if (!popupOf(cur)) owner = cur;
+      // Объединённая карточка: нажимаем её ссылку (обложку), а не центр всей карточки
+      var hit = cur.__foxTarget && cur.__foxTarget.isConnected ? cur.__foxTarget : cur;
       var before = visiblePopups();
       // Запоминаем окно, которое открылось именно от этого нажатия, — только его закрывает «Назад»
       setTimeout(function() {
@@ -247,7 +281,7 @@ if (!window.__foxnav) (function(){
           var o = owner; owner = null; set(o);
         }
       }, 400);
-      var r = cur.getBoundingClientRect(), k = devicePixelRatio * (visualViewport ? visualViewport.scale : 1);
+      var r = hit.getBoundingClientRect(), k = devicePixelRatio * (visualViewport ? visualViewport.scale : 1);
       var ox = visualViewport ? visualViewport.offsetLeft : 0, oy = visualViewport ? visualViewport.offsetTop : 0;
       return { x: ((r.left + r.right) / 2 - ox) * k, y: ((r.top + r.bottom) / 2 - oy) * k };
     },
