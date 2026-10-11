@@ -2,13 +2,18 @@
     <string name="app_name">Fox TV</string>
     <string name="press_back_again">Нажмите «Назад» ещё раз для выхода</string>
     <string name="load_error">Не удалось загрузить страницу. Нажмите OK для повтора.</string>
-    <string name="mode_cursor">Режим: курсор</string>
-    <string name="mode_dpad">Режим: стрелки (фокус)</string>
+    <string name="mode_cursor">Режим: курсор стрелками</string>
+    <string name="mode_dpad">Режим: стрелки по элементам</string>
     <string name="menu_title">Разделы</string>
     <string name="menu_home">Главная</string>
     <string name="menu_back">← Назад</string>
     <string name="menu_reload">Обновить страницу</string>
-    <string name="menu_cursor_on">Режим: курсор (переключить на стрелки)</string>
-    <string name="menu_cursor_off">Режим: стрелки (переключить на курсор)</string>
+    <string name="menu_cursor_on">Режим: курсор стрелками (переключить на выбор элементов)</string>
+    <string name="menu_cursor_off">Режим: выбор элементов (переключить на курсор стрелками)</string>
     <string name="menu_empty">Разделы появятся после загрузки страницы сайта</string>
+    <string name="episode_prev">◀ Предыдущая</string>
+    <string name="episode_next">Следующая ▶</string>
+    <string name="episode_label">Сезон %1$s · Серия %2$s из %3$d</string>
+    <string name="menu_episode_prev">◀ Предыдущая серия</string>
+    <string name="menu_episode_next">Следующая серия ▶</string>
 </resources>

@@ -227,15 +227,18 @@ class CursorLayout @JvmOverloads constructor(
         }
     }
 
-    private fun click() {
+    private fun click() = tapAt(cx, cy)
+
+    /** Касание пальцем в точке (x, y) — для клика курсором и выбора элемента стрелками. */
+    fun tapAt(x: Float, y: Float) {
         val t = SystemClock.uptimeMillis()
         val props = MotionEvent.PointerProperties().apply {
             id = 0
             toolType = MotionEvent.TOOL_TYPE_FINGER
         }
         val coords = MotionEvent.PointerCoords().apply {
-            x = cx
-            y = cy
+            this.x = x
+            this.y = y
             pressure = 1f
             size = 1f
         }

@@ -58,4 +58,37 @@
         android:layout_height="match_parent"
         android:background="@android:color/black"
         android:visibility="gone" />
+
+    <!-- Плашка переключения серий: поверх страницы и полноэкранного видео -->
+    <LinearLayout
+        android:id="@+id/episodeBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/episode_bar_bg"
+        android:elevation="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/episodePrev"
+            style="@style/EpisodeButton"
+            android:text="@string/episode_prev" />
+
+        <TextView
+            android:id="@+id/episodeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/episodeNext"
+            style="@style/EpisodeButton"
+            android:text="@string/episode_next" />
+    </LinearLayout>
 </net.hdrezka.tv.CursorLayout>

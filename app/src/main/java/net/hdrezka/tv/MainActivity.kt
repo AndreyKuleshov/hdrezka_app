@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -42,6 +43,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var menuPanel: MenuPanel
     private var sections: List<Section> = emptyList()
     private var swallowOk = false // долгое OK открыло меню — гасим остаток нажатия
+    private lateinit var spatialNav: SpatialNav
+    private lateinit var episodeNav: EpisodeNav
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
     private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
@@ -49,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG) // chrome://inspect для отладки
         setContentView(R.layout.activity_main)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
@@ -61,7 +65,14 @@ class MainActivity : AppCompatActivity() {
         menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
         sections = MenuPanel.parse(prefs.getString(KEY_SECTIONS, null))
 
-        cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, true)
+        // По умолчанию стрелки ходят по элементам, а курсором управляет air mouse;
+        // экранный курсор стрелками — запасной режим для пультов без гироскопа
+        cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, false)
+        spatialNav = SpatialNav(webView) { x, y -> cursorLayout.tapAt(x, y) }
+        episodeNav = EpisodeNav(
+            webView, findViewById(R.id.episodeBar), findViewById(R.id.episodePrev),
+            findViewById(R.id.episodeNext), findViewById(R.id.episodeLabel),
+        )
 
         with(webView.settings) {
             javaScriptEnabled = true
@@ -94,6 +105,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 errorView.visibility = View.GONE
+                episodeNav.clear()
             }
 
             override fun onPageFinished(view: WebView, url: String) {
@@ -101,6 +113,7 @@ class MainActivity : AppCompatActivity() {
                 if (isSameSite(Uri.parse(url))) {
                     prefs.edit().putString(KEY_LAST_URL, url).apply()
                     collectSections()
+                    episodeNav.refresh()
                 }
                 CookieManager.getInstance().flush()
             }
@@ -195,6 +208,10 @@ class MainActivity : AppCompatActivity() {
         val home = Section(getString(R.string.menu_home), BuildConfig.START_URL, 0)
         val list = listOf(home) + sections.filterNot { it.url.trimEnd('/') == home.url.trimEnd('/') }
         val actions = buildList {
+            episodeNav.state?.let { s ->
+                if (s.hasPrev) add(MenuPanel.Action(getString(R.string.menu_episode_prev)) { closeMenu(); episodeNav.go(-1) })
+                if (s.hasNext) add(MenuPanel.Action(getString(R.string.menu_episode_next)) { closeMenu(); episodeNav.go(1) })
+            }
             if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
@@ -248,6 +265,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (handleLongOk(event)) return true
+        if (event.action == KeyEvent.ACTION_DOWN && !menuPanel.isOpen) episodeNav.poke()
+        if (handleSpatialNav(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
                 // Меню / «Настройки» — панель разделов
@@ -264,12 +283,19 @@ class MainActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> { mediaJs("v.pause()"); return true }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { mediaJs("v.currentTime += 15"); return true }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> { mediaJs("v.currentTime -= 15"); return true }
-                KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                    cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f); return true
+                KeyEvent.KEYCODE_MEDIA_NEXT -> { episodeNav.go(1); return true }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { episodeNav.go(-1); return true }
+                // CH+/CH−: на странице серии — переключение серий, иначе прокрутка
+                KeyEvent.KEYCODE_CHANNEL_UP -> {
+                    if (!episodeNav.go(1)) cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f)
+                    return true
                 }
-                KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
-                    cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f); return true
+                KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                    if (!episodeNav.go(-1)) cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f)
+                    return true
                 }
+                KeyEvent.KEYCODE_PAGE_DOWN -> { cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f); return true }
+                KeyEvent.KEYCODE_PAGE_UP -> { cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f); return true }
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                     if (errorView.visibility == View.VISIBLE) {
                         webView.reload(); return true
@@ -278,6 +304,33 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Режим стрелок: стрелки выбирают элементы страницы, OK нажимает выбранный (на отпускании). */
+    private fun handleSpatialNav(event: KeyEvent): Boolean {
+        if (cursorLayout.cursorEnabled || menuPanel.isOpen || customView != null) return false
+        if (errorView.visibility == View.VISIBLE) return false
+        val down = event.action == KeyEvent.ACTION_DOWN
+        val dir = when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> "up"
+            KeyEvent.KEYCODE_DPAD_DOWN -> "down"
+            KeyEvent.KEYCODE_DPAD_LEFT -> "left"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> "right"
+            else -> null
+        }
+        if (dir != null) {
+            if (down) spatialNav.move(dir)
+            return true
+        }
+        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
+                event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+        if (isOk) {
+            // Долгое нажатие перехватывает handleLongOk — сюда доходит только короткое
+            if (!down) spatialNav.activate()
+            return true
+        }
+        return false
     }
 
     /** Долгое нажатие OK открывает панель разделов (на многих пультах нет кнопки Menu). */
@@ -315,6 +368,7 @@ class MainActivity : AppCompatActivity() {
         val enabled = !cursorLayout.cursorEnabled
         cursorLayout.cursorEnabled = enabled
         prefs.edit().putBoolean(KEY_CURSOR, enabled).apply()
+        if (enabled) spatialNav.reset()
         Toast.makeText(
             this, if (enabled) R.string.mode_cursor else R.string.mode_dpad, Toast.LENGTH_SHORT
         ).show()

@@ -37,6 +37,10 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
+        debug {
+            // С постоянным ключом debug-сборка ставится поверх release без потери cookies
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
     }
 
     compileOptions {
