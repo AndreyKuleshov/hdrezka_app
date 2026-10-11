@@ -161,6 +161,7 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
                 closeMenu()
+                player.externalFullscreen = true
                 customView = view
                 customViewCallback = callback
                 fullscreenContainer.addView(view, FrameLayout.LayoutParams(-1, -1))
@@ -261,6 +262,7 @@ class MainActivity : AppCompatActivity() {
         fullscreenContainer.visibility = View.GONE
         webView.visibility = View.VISIBLE
         customView = null
+        player.externalFullscreen = false
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
         webView.requestFocus()
@@ -279,6 +281,8 @@ class MainActivity : AppCompatActivity() {
         if (player.handleKey(event)) return true
         if (player.isFullscreen) return super.dispatchKeyEvent(event)
         if (handleLongOk(event)) return true
+        // Отпускание обработанных медиакнопок тоже поглощаем, иначе система отдаст его активному медиаприложению
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode in HANDLED_MEDIA_KEYS && !menuPanel.isOpen) return true
         if (handleSpatialNav(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
@@ -350,7 +354,8 @@ class MainActivity : AppCompatActivity() {
     /** Долгое нажатие OK открывает панель разделов (на многих пультах нет кнопки Menu). */
     private fun handleLongOk(event: KeyEvent): Boolean {
         val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+            ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
+                event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC) // удержание Enter при наборе текста
         if (!isOk) return false
         if (swallowOk) {
             if (event.action == KeyEvent.ACTION_UP) swallowOk = false
@@ -396,7 +401,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         webView.onPause()
-        player.stopPolling()
+        player.onBackground()
         CookieManager.getInstance().flush()
     }
 
@@ -408,6 +413,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        player.release() // снять отложенные задачи, пока WebView ещё прикреплён
         exitFullscreen()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
@@ -419,5 +425,12 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"
         private const val LONG_PRESS_REPEATS = 10
+        private val HANDLED_MEDIA_KEYS = setOf(
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_CHANNEL_DOWN,
+            KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN,
+        )
     }
 }

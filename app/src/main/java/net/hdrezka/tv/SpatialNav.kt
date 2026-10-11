@@ -19,21 +19,28 @@ class SpatialNav(
      * "ok" — сдвинулось, "none" — некуда.
      */
     fun move(direction: String, onResult: (String) -> Unit = {}) {
-        webView.evaluateJavascript("${PlayerController.PLAYER_JS};$NAV_JS;window.__foxnav.move('$direction')") {
+        // Пока предыдущий шаг не выполнился, повторы (удержание стрелки) отбрасываем —
+        // иначе на медленной приставке очередь шагов продолжает «ехать» после отпускания
+        if (moving) return
+        moving = true
+        webView.evalInstalled("__foxnav", INSTALL_JS, "window.__foxnav.move('$direction')") {
+            moving = false
             onResult(it?.trim('"') ?: "none")
         }
     }
 
+    private var moving = false
+
 
     /** Нажать выбранный элемент. */
     fun activate() {
-        webView.evaluateJavascript("${PlayerController.PLAYER_JS};$NAV_JS;window.__foxnav.target()") { result ->
-            if (result.isNullOrBlank() || result == "null") return@evaluateJavascript
+        webView.evalInstalled("__foxnav", INSTALL_JS, "window.__foxnav.target()") { result ->
+            if (result.isNullOrBlank() || result == "null") return@evalInstalled
             try {
                 val o = JSONObject(result)
                 if (o.optBoolean("player")) {
                     onPlayer()
-                    return@evaluateJavascript
+                    return@evalInstalled
                 }
                 // Координаты из JS уже в пикселях view
                 tap(o.getDouble("x").toFloat(), o.getDouble("y").toFloat())
@@ -53,6 +60,8 @@ class SpatialNav(
     }
 
     companion object {
+        private val INSTALL_JS get() = "${PlayerController.PLAYER_JS};$NAV_JS"
+
         private const val NAV_JS = """
 if (!window.__foxnav) (function(){
   var CLS = '__foxfocus';
@@ -64,6 +73,8 @@ if (!window.__foxnav) (function(){
   var SEL = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=link],' +
     '[role=option],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
   var cur = null, owner = null; // owner — элемент, открывший выпадающий список/окно
+  var opened = null;             // список/окно, появившееся после нашего нажатия OK
+  function visiblePopups() { return [].filter.call(document.querySelectorAll(POPUP), function(p) { return visible(p); }); }
   // Открытые выпадающие списки и окна: стрелки не выходят за их пределы
   var POPUP = '.ss-content,[role=listbox],[role=dialog],[role=menu],[aria-modal=true],.modal,.dropdown-menu,.popup';
 
@@ -185,6 +196,12 @@ if (!window.__foxnav) (function(){
       if (!cur || !cur.isConnected || !visible(cur)) return null;
       if (isPlayer(cur)) return { player: true };
       if (!popupOf(cur)) owner = cur;
+      var before = visiblePopups();
+      // Запоминаем окно, которое открылось именно от этого нажатия, — только его закрывает «Назад»
+      setTimeout(function() {
+        var now = visiblePopups().filter(function(p) { return before.indexOf(p) < 0; });
+        if (now.length) opened = now[now.length - 1];
+      }, 400);
       // Если нажатие закрыло список (выбран пункт) — сразу вернуть рамку на его владельца
       setTimeout(function() {
         if ((!cur || !cur.isConnected || !visible(cur) || !popupOf(cur) && cur !== owner) && owner && owner.isConnected && visible(owner)) {
@@ -198,7 +215,8 @@ if (!window.__foxnav) (function(){
     reset: function() { set(null); },
     // «Назад»: закрыть открытый список/окно. true — закрыли, обычный «Назад» не нужен
     escape: function() {
-      var popup = popupOf(cur) || (owner && document.querySelector(POPUP + ':not([style*="display: none"])'));
+      var popup = popupOf(cur) || (opened && opened.isConnected && visible(opened) ? opened : null);
+      opened = null;
       if (!popup || !visible(popup)) return false;
       // SlimSelect (фильтры сайта) закрывается своим API
       [].forEach.call(document.querySelectorAll('select'), function(sel) {

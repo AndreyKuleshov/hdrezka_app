@@ -23,6 +23,17 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # Релиз без постоянного ключа нельзя: APK с ключом раннера не встанет поверх прежних версий
+      - name: Check signing key for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "::error::Секрет SIGNING_KEYSTORE_BASE64 не задан — релиз не подписать постоянным ключом"
+            exit 1
+          fi
+
       # Постоянный ключ подписи (если секреты заданы) — чтобы обновления ставились поверх старой версии
       - name: Decode signing key
         env:

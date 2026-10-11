@@ -38,8 +38,12 @@ android {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         debug {
-            // С постоянным ключом debug-сборка ставится поверх release без потери cookies
-            signingConfigs.findByName("release")?.let { signingConfig = it }
+            // Debug-сборка отлаживаемая (WebView debugging), поэтому по умолчанию подписана своим ключом
+            // и не встанет поверх release. Для локальной проверки поверх установленной версии
+            // (с сохранением cookies) — FOXTV_DEBUG_RELEASE_KEY=1.
+            if (System.getenv("FOXTV_DEBUG_RELEASE_KEY") == "1") {
+                signingConfigs.findByName("release")?.let { signingConfig = it }
+            }
         }
     }
 

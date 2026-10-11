@@ -20,7 +20,7 @@
     <string name="player_quality">Качество</string>
     <string name="player_quality_value">Качество: %1$s</string>
     <string name="player_skip">Пропустить рекламу ⏭</string>
-    <string name="player_skip_in">Пропустить через %1$d с</string>
+    <string name="player_skip_in">⏭ через %1$d с</string>
     <string name="player_ad">Реклама</string>
     <string name="next_in">Следующая серия через %1$d с</string>
     <string name="next_now">Смотреть сейчас</string>

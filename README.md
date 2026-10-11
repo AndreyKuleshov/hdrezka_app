@@ -143,7 +143,11 @@ buildConfigField("String", "START_URL", "\"https://serialy-fox-hdrezka.net/\"")
 app/src/main/
 ├── AndroidManifest.xml                 # разрешения, запуск из лаунчера Android TV
 ├── java/net/hdrezka/tv/
-│   ├── MainActivity.kt                 # WebView, полноэкранное видео, кнопки пульта
-│   └── CursorLayout.kt                 # экранный курсор для пульта
+│   ├── MainActivity.kt                 # WebView, порядок обработки кнопок пульта, «Назад»
+│   ├── SpatialNav.kt                   # навигация стрелками по элементам страницы
+│   ├── PlayerController.kt             # обёртка над плеером сайта: весь экран, контролы, реклама, серии
+│   ├── MenuPanel.kt                    # панель разделов
+│   ├── CursorLayout.kt                 # экранный курсор (запасной режим), имитация касаний и прокрутки
+│   └── JsInstall.kt                    # внедрение скриптов в страницу один раз на документ
 └── res/                                # разметка, строки, иконка и баннер
 ```

@@ -48,8 +48,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="24dp" />
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="24dp"
+            android:paddingBottom="24dp" />
     </ScrollView>
 
     <FrameLayout
@@ -74,7 +76,8 @@
             android:layout_gravity="top"
             android:background="@drawable/player_top_bg"
             android:orientation="vertical"
-            android:paddingHorizontal="48dp"
+            android:paddingStart="48dp"
+            android:paddingEnd="48dp"
             android:paddingTop="32dp"
             android:paddingBottom="48dp">
 
@@ -103,8 +106,10 @@
             android:layout_gravity="top|end"
             android:layout_margin="32dp"
             android:background="@drawable/episode_bar_bg"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="8dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:visibility="gone" />
@@ -116,7 +121,8 @@
             android:layout_gravity="bottom"
             android:background="@drawable/player_bottom_bg"
             android:orientation="vertical"
-            android:paddingHorizontal="48dp"
+            android:paddingStart="48dp"
+            android:paddingEnd="48dp"
             android:paddingTop="64dp"
             android:paddingBottom="32dp">
 
@@ -138,7 +144,8 @@
                     style="?android:attr/progressBarStyleHorizontal"
                     android:layout_width="0dp"
                     android:layout_height="6dp"
-                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
                     android:layout_weight="1"
                     android:focusable="false"
                     android:max="1000"

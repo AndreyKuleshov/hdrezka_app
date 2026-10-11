@@ -76,10 +76,22 @@ class PlayerController(
 
     private val buttons = listOf(btnPrev, btnBack, btnPlay, btnForward, btnNext, btnQuality, btnSkip)
 
+    private val cursor = root as? CursorLayout
     private var polling = false
-    /** После смены серии из полноэкранного режима — сразу запустить новую серию. */
-    private var resumeOnLoad = false
+    private var released = false
+    /** Номер документа: ответы опроса от предыдущей страницы игнорируются. */
+    private var generation = 0
+    /** Смена серии из полноэкранного режима: запросили (до загрузки) → ждём готовности плеера в новом документе. */
+    private var resumeRequested = false
+    private var resumeUntil = 0L
     private var countdown = 0
+
+    /** Открыт полноэкранный режим самого сайта (onShowCustomView) — обёртка не вмешивается. */
+    var externalFullscreen = false
+        set(value) {
+            field = value
+            if (value && mode != Mode.PAGE) setMode(Mode.PAGE, notify = false)
+        }
 
     private val poll = object : Runnable {
         override fun run() {
@@ -88,10 +100,10 @@ class PlayerController(
             webView.postDelayed(this, POLL_MS)
         }
     }
-    private val autoHide = Runnable { if (mode == Mode.CONTROLS && canAutoHide()) hideControls() }
+    private val autoHide = Runnable { if (!released && mode == Mode.CONTROLS && canAutoHide()) hideControls() }
     private val tick = object : Runnable {
         override fun run() {
-            if (nextCard.visibility != View.VISIBLE) return
+            if (released || mode == Mode.PAGE || nextCard.visibility != View.VISIBLE) return
             countdown--
             if (countdown <= 0) {
                 hideNextCard()
@@ -108,7 +120,7 @@ class PlayerController(
         btnNext.setOnClickListener { episode(1) }
         btnBack.setOnClickListener { js("seek(-10)") }
         btnForward.setOnClickListener { js("seek(10)") }
-        btnPlay.setOnClickListener { js("toggle()") }
+        btnPlay.setOnClickListener { togglePlay() }
         btnQuality.setOnClickListener { openQualityMenu() }
         btnSkip.setOnClickListener { skipAd() }
         btnNextNow.setOnClickListener { hideNextCard(); episode(1) }
@@ -119,11 +131,38 @@ class PlayerController(
 
     fun onPageStarted() {
         stopPolling()
+        generation++
+        resetTransient()
         if (mode != Mode.PAGE) setMode(Mode.PAGE, notify = false)
         state = State()
+        if (resumeRequested) {
+            resumeRequested = false
+            resumeUntil = System.currentTimeMillis() + RESUME_TIMEOUT_MS
+        }
+    }
+
+    /** Приложение ушло в фон: пауза, без автоперехода и автоскрытия. */
+    fun onBackground() {
+        stopPolling()
+        resetTransient()
+        if (mode != Mode.PAGE) js("pause()")
+    }
+
+    /** Перед уничтожением WebView: снять все отложенные задачи, пока view ещё прикреплён. */
+    fun release() {
+        released = true
+        stopPolling()
+        resetTransient()
+    }
+
+    private fun resetTransient() {
+        hideNextCard()
+        closeQualityMenu()
+        webView.removeCallbacks(autoHide)
     }
 
     fun onPageFinished() {
+        if (released) return
         polling = true
         webView.removeCallbacks(poll)
         webView.post(poll)
@@ -139,7 +178,10 @@ class PlayerController(
     /** Запустить воспроизведение (OK на плеере): дальше сработает автопереход на весь экран. */
     fun play() = js("play()")
 
-    fun togglePlay() = js("toggle()")
+    fun togglePlay() {
+        js("toggle()")
+        if (mode == Mode.CONTROLS) scheduleAutoHide()
+    }
 
     fun seek(seconds: Int) {
         if (!state.adActive) js("seek($seconds)")
@@ -149,7 +191,8 @@ class PlayerController(
     fun episode(dir: Int): Boolean {
         val s = state
         if (s.adActive || (dir > 0 && !s.hasNext) || (dir < 0 && !s.hasPrev)) return false
-        resumeOnLoad = isFullscreen
+        resetTransient()
+        resumeRequested = isFullscreen
         js("episode($dir)")
         return true
     }
@@ -158,7 +201,7 @@ class PlayerController(
 
     /** Обработка пульта в полноэкранном режиме. true — нажатие поглощено. */
     fun handleKey(event: KeyEvent): Boolean {
-        if (mode == Mode.PAGE) return false
+        if (mode == Mode.PAGE || externalFullscreen) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         val first = down && event.repeatCount == 0
         when (event.keyCode) {
@@ -221,14 +264,16 @@ class PlayerController(
     // --- Переходы между режимами ---
 
     private fun enterFullscreen() {
-        js("fs(true)")
-        setMode(Mode.FULLSCREEN)
+        webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.fs(true)") { result ->
+            // Плеер не нашёлся (растягивать нечего) — остаёмся на странице
+            if (result == "true" && mode == Mode.PAGE && !externalFullscreen) setMode(Mode.FULLSCREEN)
+        }
     }
 
     fun exitToPage() {
         hideNextCard()
         closeQualityMenu()
-        js("pause();window.__foxplayer.fs(false)")
+        js("exitFs()")
         setMode(Mode.PAGE)
     }
 
@@ -249,6 +294,8 @@ class PlayerController(
     private fun setMode(m: Mode, notify: Boolean = true) {
         val wasPage = mode == Mode.PAGE
         mode = m
+        // В полноэкранном режиме экранный курсор не перехватывает стрелки и OK у контролов
+        cursor?.playerActive = m != Mode.PAGE
         overlay.visibility = if (m == Mode.PAGE) View.GONE else View.VISIBLE
         val shown = m == Mode.CONTROLS
         top.visibility = if (shown) View.VISIBLE else View.GONE
@@ -267,7 +314,10 @@ class PlayerController(
     // --- Опрос плеера ---
 
     private fun refresh() {
-        webView.evaluateJavascript("$PLAYER_JS;window.__foxplayer.state()") { result ->
+        if (released) return
+        val gen = generation
+        webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.state()") { result ->
+            if (released || gen != generation) return@evalInstalled // ответ от прежней страницы
             val prev = state
             val s = parse(result) ?: State()
             state = s
@@ -277,15 +327,17 @@ class PlayerController(
     }
 
     private fun onStateChanged(prev: State, s: State) {
-        if (!s.hasPlayer) return
+        if (!s.hasPlayer || externalFullscreen) return
         val wasActive = prev.playing || prev.adActive
         val active = s.playing || s.adActive
         // Пункт 1: запуск серии → сразу на весь экран
         if (mode == Mode.PAGE && active && !wasActive) enterFullscreen()
-        // После смены серии из полноэкранного режима — сразу играть
-        if (resumeOnLoad && !active) {
-            resumeOnLoad = false
-            js("play()")
+        // После смены серии из полноэкранного режима — запускать, пока плеер не заиграет (не дольше RESUME_TIMEOUT_MS)
+        if (resumeUntil > 0) {
+            when {
+                active || System.currentTimeMillis() > resumeUntil -> resumeUntil = 0
+                s.duration > 0 -> js("play()")
+            }
         }
         // Стал доступен пропуск рекламы — показать контролы с фокусом на «Пропустить»
         if (isFullscreen && s.canSkip && !prev.canSkip) showControls(btnSkip)
@@ -370,7 +422,7 @@ class PlayerController(
     // --- Реклама и следующая серия ---
 
     private fun skipAd() {
-        webView.evaluateJavascript("$PLAYER_JS;window.__foxplayer.skipTarget()") { result ->
+        webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.skipTarget()") { result ->
             try {
                 val o = JSONObject(result)
                 tap(o.getDouble("x").toFloat(), o.getDouble("y").toFloat())
@@ -381,6 +433,7 @@ class PlayerController(
     }
 
     private fun showNextCard() {
+        closeQualityMenu()
         setMode(Mode.FULLSCREEN)
         countdown = NEXT_COUNTDOWN
         nextText.text = nextText.context.getString(R.string.next_in, countdown)
@@ -398,7 +451,8 @@ class PlayerController(
     // --- Вспомогательное ---
 
     private fun js(call: String) {
-        webView.evaluateJavascript("$PLAYER_JS;window.__foxplayer.$call") { refresh() }
+        if (released) return
+        webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.$call") { refresh() }
     }
 
     private fun fmt(sec: Double): String {
@@ -442,6 +496,7 @@ class PlayerController(
         private const val POLL_MS = 500L
         private const val AUTO_HIDE_MS = 5000L
         private const val NEXT_COUNTDOWN = 10
+        private const val RESUME_TIMEOUT_MS = 15_000L
 
         /**
          * window.__foxplayer — состояние и команды плеера: PlayerJS API (pljssglobal[0].api),
@@ -515,7 +570,10 @@ if (!window.__foxplayer) (function(){
       if (playing === undefined && v) { playing = !v.paused; time = v.currentTime; dur = v.duration; }
       var ad = adInfo(), q = api('qualities'), cur = e[i] || e[0], h = document.querySelector('h1');
       return {
-        player: !!r, playing: !!playing, ended: ended, time: +time || 0, duration: isFinite(dur) ? +dur || 0 : 0,
+        // Конец серии: по событию PlayerJS или (если хук не сработал) по времени
+        player: !!r, playing: !!playing,
+        ended: ended || (!playing && +dur > 0 && +time >= +dur - 1) || !!(v && v.ended && !ad.ad),
+        time: +time || 0, duration: isFinite(dur) ? +dur || 0 : 0,
         ad: ad.ad, adLabel: ad.label, skipIn: ad.skipIn, canSkip: !!ad.skipEl,
         quality: api('quality') || '', qualities: Array.isArray(q) ? q : [],
         title: h ? h.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : document.title,
@@ -527,7 +585,13 @@ if (!window.__foxplayer) (function(){
       };
     },
     play: function() { if (pj()) api('play'); else { var v = video(); if (v) v.play(); } },
-    pause: function() { if (pj()) api('pause'); else { var v = video(); if (v) v.pause(); } },
+    // Пауза и для рекламного <video>, который PlayerJS api('pause') не останавливает
+    pause: function() {
+      if (pj()) api('pause');
+      [].forEach.call(document.querySelectorAll('video'), function(v) { try { v.pause(); } catch (e) {} });
+      return true;
+    },
+    exitFs: function() { this.pause(); return this.fs(false); },
     toggle: function() {
       if (pj()) { api(api('playing') ? 'pause' : 'play'); return; }
       var v = video(); if (v) { if (v.paused) v.play(); else v.pause(); }
@@ -568,7 +632,8 @@ if (!window.__foxplayer) (function(){
     skipTarget: function() {
       var e = adInfo().skipEl; if (!e) return null;
       var r = e.getBoundingClientRect(), k = devicePixelRatio * (visualViewport ? visualViewport.scale : 1);
-      return { x: (r.left + r.right) / 2 * k, y: (r.top + r.bottom) / 2 * k };
+      var ox = visualViewport ? visualViewport.offsetLeft : 0, oy = visualViewport ? visualViewport.offsetTop : 0;
+      return { x: ((r.left + r.right) / 2 - ox) * k, y: ((r.top + r.bottom) / 2 - oy) * k };
     }
   };
 })()

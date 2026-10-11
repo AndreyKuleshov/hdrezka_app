@@ -44,7 +44,16 @@ class CursorLayout @JvmOverloads constructor(
             invalidate()
         }
 
-    private val active get() = cursorEnabled && !suspended
+    /** Видео на весь экран с контролами приложения: курсор скрыт и не перехватывает кнопки. */
+    var playerActive = false
+        set(value) {
+            field = value
+            stopMovement()
+            okDown = false
+            invalidate()
+        }
+
+    private val active get() = cursorEnabled && !suspended && !playerActive
 
     private val density = resources.displayMetrics.density
     private val radius = 12f * density
