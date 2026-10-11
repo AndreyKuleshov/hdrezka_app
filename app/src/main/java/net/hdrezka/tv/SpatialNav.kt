@@ -145,10 +145,13 @@ if (!window.__foxnav) (function(){
       var cw = c.r - c.l, ch = c.b - c.t, rw = r.r - r.l, rh = r.b - r.t;
       var tolX = Math.min(cw, rw) * 0.25, tolY = Math.min(ch, rh) * 0.25;
       var ex = (r.l + r.r) / 2, ey = (r.t + r.b) / 2, cross;
-      if (dir === 'down') { main = r.t - c.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = Math.abs(ex - cx); }
-      if (dir === 'up') { main = c.t - r.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = Math.abs(ex - cx); }
-      if (dir === 'right') { main = r.l - c.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = Math.abs(ey - cy); }
-      if (dir === 'left') { main = c.l - r.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = Math.abs(ey - cy); }
+      // Со широкого элемента (например, плеера) вниз/вверх — к началу ряда, а не к его середине
+      var crossV = cw > rw * 2 ? Math.abs(r.l - c.l) : Math.abs(ex - cx);
+      var crossH = ch > rh * 2 ? Math.abs(r.t - c.t) : Math.abs(ey - cy);
+      if (dir === 'down') { main = r.t - c.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = crossV; }
+      if (dir === 'up') { main = c.t - r.b; if (main < -tolY) return; gap = Math.max(0, r.l - c.r, c.l - r.r); cross = crossV; }
+      if (dir === 'right') { main = r.l - c.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = crossH; }
+      if (dir === 'left') { main = c.l - r.r; if (main < -tolX) return; gap = Math.max(0, r.t - c.b, c.t - r.b); cross = crossH; }
       // Влево/вправо — только в пределах «ряда»: в конце ряда рамка остаётся на месте,
       // а не прыгает на далёкий элемент ниже (например, кнопки «Поделиться» под списком серий)
       if ((dir === 'left' || dir === 'right') && gap > Math.max(ch, rh) * 1.5) return;

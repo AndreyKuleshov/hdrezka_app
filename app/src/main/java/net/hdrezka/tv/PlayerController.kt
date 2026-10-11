@@ -170,6 +170,7 @@ class PlayerController(
 
     fun onPageFinished() {
         if (released) return
+        webView.evaluateJavascript(REORDER_JS, null)
         polling = true
         webView.removeCallbacks(poll)
         webView.post(poll)
@@ -566,6 +567,35 @@ class PlayerController(
         private const val RESUME_TIMEOUT_MS = 15_000L
         private const val SCRUB_STEP_S = 60.0
         private const val SCRUB_REPEAT_MS = 150L
+
+        /**
+         * Страница сериала: плеер с сериями — сразу под постером и заголовком,
+         * а информация, актёры, рейтинги и описание — ниже плеера.
+         * Блоки из CSS-сетки .full_grid переносятся в отдельный контейнер после плеера.
+         */
+        private const val REORDER_JS = """
+(function(){
+  var grid = document.querySelector('.full_grid'), player = document.querySelector('.full_player');
+  if (!grid || !player || grid.getAttribute('data-fox-reordered')) return;
+  var moved = ['.full_content-info', '.full_content-actions', '.full_story']
+    .map(function(s) { return grid.querySelector(s); })
+    .filter(function(e) { return e && e.parentElement === grid; });
+  if (!moved.length) return;
+  grid.setAttribute('data-fox-reordered', '1');
+  var style = document.createElement('style');
+  style.textContent =
+    '.full_grid[data-fox-reordered]{min-height:0 !important;height:auto !important;grid-template-rows:auto !important;}' +
+    '.__foxinfo{display:flex;flex-wrap:wrap;gap:30px;margin-top:30px;}' +
+    '.__foxinfo>.full_content-info{flex:1 1 500px;}' +
+    '.__foxinfo>.full_content-actions{flex:0 0 260px;}' +
+    '.__foxinfo>.full_story{flex:1 1 100%;}';
+  (document.head || document.documentElement).appendChild(style);
+  var box = document.createElement('div');
+  box.className = '__foxinfo';
+  moved.forEach(function(e) { box.appendChild(e); });
+  player.parentElement.insertBefore(box, player.nextSibling);
+})()
+"""
 
         /**
          * window.__foxplayer — состояние и команды плеера: PlayerJS API (pljssglobal[0].api),
