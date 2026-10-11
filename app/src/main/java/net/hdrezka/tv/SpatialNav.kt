@@ -11,17 +11,30 @@ import org.json.JSONObject
 class SpatialNav(
     private val webView: WebView,
     private val tap: (x: Float, y: Float) -> Unit,
+    /** OK на плеере: запустить воспроизведение через API, а не касанием (оно может попасть в рекламу). */
+    private val onPlayer: () -> Unit,
 ) {
-    fun move(direction: String) {
-        webView.evaluateJavascript("$NAV_JS;window.__foxnav.move('$direction')", null)
+    /**
+     * Сдвинуть выделение. [onResult]: "player" — выделение на плеере,
+     * "ok" — сдвинулось, "none" — некуда.
+     */
+    fun move(direction: String, onResult: (String) -> Unit = {}) {
+        webView.evaluateJavascript("${PlayerController.PLAYER_JS};$NAV_JS;window.__foxnav.move('$direction')") {
+            onResult(it?.trim('"') ?: "none")
+        }
     }
+
 
     /** Нажать выбранный элемент. */
     fun activate() {
-        webView.evaluateJavascript("$NAV_JS;window.__foxnav.target()") { result ->
+        webView.evaluateJavascript("${PlayerController.PLAYER_JS};$NAV_JS;window.__foxnav.target()") { result ->
             if (result.isNullOrBlank() || result == "null") return@evaluateJavascript
             try {
                 val o = JSONObject(result)
+                if (o.optBoolean("player")) {
+                    onPlayer()
+                    return@evaluateJavascript
+                }
                 // Координаты из JS уже в пикселях view
                 tap(o.getDouble("x").toFloat(), o.getDouble("y").toFloat())
             } catch (_: Exception) {
@@ -87,7 +100,11 @@ if (!window.__foxnav) (function(){
       var e = all[i];
       if (e.matches(SEL) || (pointer(e) && !(e.parentElement && pointer(e.parentElement)))) set.add(e);
     }
+    // Плеер — одна точка навигации; его внутренние элементы не обходим (ими управляет панель плеера)
+    var player = window.__foxplayer && window.__foxplayer.root();
+    if (player && visible(player)) set.add(player);
     set.forEach(function(e) {
+      if (player && e !== player && player.contains(e)) return;
       // Внутри открытого списка пункты могут быть скрыты прокруткой — их не проверяем на перекрытие
       if (!visible(e) || (!scope && !onTop(e))) return;
       for (var p = e.parentElement; p && p !== root; p = p.parentElement) {
@@ -100,6 +117,8 @@ if (!window.__foxnav) (function(){
     });
     return out;
   }
+
+  function isPlayer(e) { return !!(window.__foxplayer && e === window.__foxplayer.root()); }
 
   function rect(e) { var r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }
 
@@ -147,16 +166,24 @@ if (!window.__foxnav) (function(){
         // Список закрылся — возвращаемся к элементу, который его открыл
         var back = owner && owner.isConnected && visible(owner) ? owner : null;
         owner = null;
-        set(back || first(candidates()));
-        return;
+        var f = back || first(candidates());
+        set(f);
+        return f && isPlayer(f) ? 'player' : 'ok';
       }
       var popup = popupOf(cur);
       var next = pick(dir, candidates(popup));
-      if (next) set(next);
-      else if (!popup && (dir === 'down' || dir === 'up')) scrollBy(0, (dir === 'down' ? 1 : -1) * innerHeight * 0.6);
+      if (next) { set(next); return isPlayer(next) ? 'player' : 'ok'; }
+      if (!popup && (dir === 'down' || dir === 'up')) scrollBy(0, (dir === 'down' ? 1 : -1) * innerHeight * 0.6);
+      return 'none';
+    },
+    fromPlayer: function(dir) {
+      var p = window.__foxplayer && window.__foxplayer.root();
+      if (p) cur = p;
+      return this.move(dir);
     },
     target: function() {
       if (!cur || !cur.isConnected || !visible(cur)) return null;
+      if (isPlayer(cur)) return { player: true };
       if (!popupOf(cur)) owner = cur;
       // Если нажатие закрыло список (выбран пункт) — сразу вернуть рамку на его владельца
       setTimeout(function() {

@@ -59,36 +59,158 @@
         android:background="@android:color/black"
         android:visibility="gone" />
 
-    <!-- Плашка переключения серий: поверх страницы и полноэкранного видео -->
-    <LinearLayout
-        android:id="@+id/episodeBar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="32dp"
-        android:background="@drawable/episode_bar_bg"
-        android:elevation="10dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="8dp"
+    <!-- Экран плеера поверх видео на весь экран: заголовок, прогресс, кнопки, качество, «следующая серия» -->
+    <FrameLayout
+        android:id="@+id/playerOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:elevation="12dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/episodePrev"
-            style="@style/EpisodeButton"
-            android:text="@string/episode_prev" />
+        <LinearLayout
+            android:id="@+id/playerTop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:background="@drawable/player_top_bg"
+            android:orientation="vertical"
+            android:paddingHorizontal="48dp"
+            android:paddingTop="32dp"
+            android:paddingBottom="48dp">
+
+            <TextView
+                android:id="@+id/playerTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFFFFF"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/playerEpisode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCFFFFFF"
+                android:textSize="18sp" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/episodeLabel"
+            android:id="@+id/playerAdBadge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="20dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="32dp"
+            android:background="@drawable/episode_bar_bg"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="8dp"
             android:textColor="#FFFFFF"
-            android:textSize="18sp" />
+            android:textSize="18sp"
+            android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/episodeNext"
-            style="@style/EpisodeButton"
-            android:text="@string/episode_next" />
-    </LinearLayout>
+        <LinearLayout
+            android:id="@+id/playerControls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="@drawable/player_bottom_bg"
+            android:orientation="vertical"
+            android:paddingHorizontal="48dp"
+            android:paddingTop="64dp"
+            android:paddingBottom="32dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/playerTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+
+                <ProgressBar
+                    android:id="@+id/playerProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="0dp"
+                    android:layout_height="6dp"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_weight="1"
+                    android:focusable="false"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/player_progress" />
+
+                <TextView
+                    android:id="@+id/playerDuration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <TextView android:id="@+id/btnPrevEpisode" style="@style/EpisodeButton" android:text="@string/episode_prev" />
+                <TextView android:id="@+id/btnBack10" style="@style/EpisodeButton" android:text="@string/player_back" />
+                <TextView android:id="@+id/btnPlay" style="@style/EpisodeButton" android:minWidth="140dp" android:gravity="center" android:text="@string/player_pause" />
+                <TextView android:id="@+id/btnForward10" style="@style/EpisodeButton" android:text="@string/player_forward" />
+                <TextView android:id="@+id/btnNextEpisode" style="@style/EpisodeButton" android:text="@string/episode_next" />
+                <TextView android:id="@+id/btnQuality" style="@style/EpisodeButton" android:text="@string/player_quality" />
+                <TextView android:id="@+id/btnSkip" style="@style/EpisodeButton" android:text="@string/player_skip" android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Список качества, открывается кнопкой «Качество» -->
+        <LinearLayout
+            android:id="@+id/qualityMenu"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="48dp"
+            android:layout_marginBottom="150dp"
+            android:background="@drawable/episode_bar_bg"
+            android:minWidth="200dp"
+            android:orientation="vertical"
+            android:padding="8dp"
+            android:visibility="gone" />
+
+        <!-- В конце серии: «Следующая серия через N с» -->
+        <LinearLayout
+            android:id="@+id/nextCard"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="48dp"
+            android:background="@drawable/episode_bar_bg"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/nextText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingBottom="12dp"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView android:id="@+id/btnNextNow" style="@style/EpisodeButton" android:text="@string/next_now" />
+                <TextView android:id="@+id/btnNextCancel" style="@style/EpisodeButton" android:text="@string/next_cancel" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 </net.hdrezka.tv.CursorLayout>

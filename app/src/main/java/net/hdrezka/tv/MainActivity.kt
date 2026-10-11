@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
     private var sections: List<Section> = emptyList()
     private var swallowOk = false // долгое OK открыло меню — гасим остаток нажатия
     private lateinit var spatialNav: SpatialNav
-    private lateinit var episodeNav: EpisodeNav
+    private lateinit var player: PlayerController
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
     private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
@@ -68,11 +68,11 @@ class MainActivity : AppCompatActivity() {
         // По умолчанию стрелки ходят по элементам, а курсором управляет air mouse;
         // экранный курсор стрелками — запасной режим для пультов без гироскопа
         cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, false)
-        spatialNav = SpatialNav(webView) { x, y -> cursorLayout.tapAt(x, y) }
-        episodeNav = EpisodeNav(
-            webView, findViewById(R.id.episodeBar), findViewById(R.id.episodePrev),
-            findViewById(R.id.episodeNext), findViewById(R.id.episodeLabel),
-        )
+        spatialNav = SpatialNav(webView, { x, y -> cursorLayout.tapAt(x, y) }) { player.play() }
+        player = PlayerController(webView, cursorLayout, { x, y -> cursorLayout.tapAt(x, y) }) {
+            // Вернулись из полноэкранного режима на страницу сериала
+            webView.requestFocus()
+        }
 
         with(webView.settings) {
             javaScriptEnabled = true
@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 errorView.visibility = View.GONE
-                episodeNav.clear()
+                player.onPageStarted()
             }
 
             override fun onPageFinished(view: WebView, url: String) {
@@ -113,7 +113,7 @@ class MainActivity : AppCompatActivity() {
                 if (isSameSite(Uri.parse(url))) {
                     prefs.edit().putString(KEY_LAST_URL, url).apply()
                     collectSections()
-                    episodeNav.refresh()
+                    player.onPageFinished()
                 }
                 CookieManager.getInstance().flush()
             }
@@ -150,6 +150,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 (resultMsg.obj as WebView.WebViewTransport).webView = popup
                 resultMsg.sendToTarget()
+                // Реклама могла не перейти ни по какой ссылке — не оставляем WebView висеть
+                webView.postDelayed({ popup.destroy() }, 5000)
                 return true
             }
 
@@ -176,6 +178,7 @@ class MainActivity : AppCompatActivity() {
             when {
                 menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
+                player.handleBack() -> Unit
                 // Сначала закрываем открытый на странице выпадающий список, потом уходим назад
                 !cursorLayout.cursorEnabled -> spatialNav.escape { closed -> if (!closed) navigateBack() }
                 else -> navigateBack()
@@ -216,9 +219,9 @@ class MainActivity : AppCompatActivity() {
         val home = Section(getString(R.string.menu_home), BuildConfig.START_URL, 0)
         val list = listOf(home) + sections.filterNot { it.url.trimEnd('/') == home.url.trimEnd('/') }
         val actions = buildList {
-            episodeNav.state?.let { s ->
-                if (s.hasPrev) add(MenuPanel.Action(getString(R.string.menu_episode_prev)) { closeMenu(); episodeNav.go(-1) })
-                if (s.hasNext) add(MenuPanel.Action(getString(R.string.menu_episode_next)) { closeMenu(); episodeNav.go(1) })
+            player.state.let { s ->
+                if (s.hasPrev) add(MenuPanel.Action(getString(R.string.menu_episode_prev)) { closeMenu(); player.episode(-1) })
+                if (s.hasNext) add(MenuPanel.Action(getString(R.string.menu_episode_next)) { closeMenu(); player.episode(1) })
             }
             if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
@@ -248,7 +251,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openPopupUrl(popup: WebView, url: Uri): Boolean {
         if (isSameSite(url)) webView.loadUrl(url.toString())
-        popup.post { popup.destroy() }
+        popup.stopLoading()
         return true
     }
 
@@ -272,8 +275,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Видео на весь экран: все кнопки обрабатывает обёртка плеера
+        if (player.handleKey(event)) return true
+        if (player.isFullscreen) return super.dispatchKeyEvent(event)
         if (handleLongOk(event)) return true
-        if (event.action == KeyEvent.ACTION_DOWN && !menuPanel.isOpen) episodeNav.poke()
         if (handleSpatialNav(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
@@ -286,20 +291,20 @@ class MainActivity : AppCompatActivity() {
             // Пока открыта панель, остальные кнопки — обычная навигация по её пунктам
             if (menuPanel.isOpen) return super.dispatchKeyEvent(event)
             when (event.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { mediaJs("v.paused ? v.play() : v.pause()"); return true }
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { player.togglePlay(); return true }
                 KeyEvent.KEYCODE_MEDIA_PLAY -> { mediaJs("v.play()"); return true }
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> { mediaJs("v.pause()"); return true }
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { mediaJs("v.currentTime += 15"); return true }
-                KeyEvent.KEYCODE_MEDIA_REWIND -> { mediaJs("v.currentTime -= 15"); return true }
-                KeyEvent.KEYCODE_MEDIA_NEXT -> { episodeNav.go(1); return true }
-                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { episodeNav.go(-1); return true }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { player.seek(10); return true }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> { player.seek(-10); return true }
+                KeyEvent.KEYCODE_MEDIA_NEXT -> { player.episode(1); return true }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { player.episode(-1); return true }
                 // CH+/CH−: на странице серии — переключение серий, иначе прокрутка
                 KeyEvent.KEYCODE_CHANNEL_UP -> {
-                    if (!episodeNav.go(1)) cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f)
+                    if (!player.episode(1)) cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f)
                     return true
                 }
                 KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                    if (!episodeNav.go(-1)) cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f)
+                    if (!player.episode(-1)) cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f)
                     return true
                 }
                 KeyEvent.KEYCODE_PAGE_DOWN -> { cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f); return true }
@@ -316,8 +321,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Режим стрелок: стрелки выбирают элементы страницы, OK нажимает выбранный (на отпускании). */
     private fun handleSpatialNav(event: KeyEvent): Boolean {
-        if (cursorLayout.cursorEnabled || menuPanel.isOpen || customView != null) return false
-        if (errorView.visibility == View.VISIBLE) return false
+        if (menuPanel.isOpen || errorView.visibility == View.VISIBLE) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -326,6 +330,8 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_DPAD_RIGHT -> "right"
             else -> null
         }
+
+        if (cursorLayout.cursorEnabled || customView != null) return false
         if (dir != null) {
             if (down) spatialNav.move(dir)
             return true
@@ -390,12 +396,14 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         webView.onPause()
+        player.stopPolling()
         CookieManager.getInstance().flush()
     }
 
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        player.onPageFinished() // возобновить опрос плеера
         hideSystemBars()
     }
 

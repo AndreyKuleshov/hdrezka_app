@@ -40,7 +40,7 @@ class MenuPanel(
         panel.visibility = View.VISIBLE
         panel.scrollTo(0, 0)
         // Фокус на первый пункт после заголовка
-        items.post { (0 until items.childCount).map(items::getChildAt).firstOrNull { it.isFocusable }?.requestFocus() }
+        items.post { (0 until items.childCount).map(items::getChildAt).firstOrNull { it.isFocusable }?.requestFocusFromTouch() }
     }
 
     fun close() {
