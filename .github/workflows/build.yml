@@ -14,14 +14,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # Android SDK уже установлен на раннере (ANDROID_HOME), local.properties не нужен
       - name: Build APK
@@ -32,14 +32,14 @@ jobs:
           VERSION="${GITHUB_REF_NAME//\//-}"
           mv app/build/outputs/apk/release/app-release.apk "FoxTV-${VERSION}.apk"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: FoxTV-apk
           path: FoxTV-*.apk
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: FoxTV-*.apk
           generate_release_notes: true
