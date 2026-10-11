@@ -26,7 +26,12 @@
 
 ## Установка на телевизор
 
-APK-файлы не хранятся в репозитории — соберите его сами (см. [Сборка](#сборка)) или возьмите готовый файл `app-release.apk`.
+Готовый APK собирается автоматически через GitHub Actions:
+
+- **Релизы** — на странице [Releases](https://github.com/AndreyKuleshov/hdrezka_app/releases) скачайте `FoxTV-vX.Y.apk` из последнего релиза.
+- **Свежая сборка из `main`** — вкладка [Actions](https://github.com/AndreyKuleshov/hdrezka_app/actions/workflows/build.yml) → последний успешный запуск → артефакт `FoxTV-apk` (нужен вход в GitHub, внутри zip-архив с APK).
+
+Можно также собрать APK самостоятельно (см. [Сборка](#сборка)).
 
 ### Вариант 1. Через USB-флешку
 
@@ -50,6 +55,17 @@ APK-файлы не хранятся в репозитории — собери�
 После установки приложение **Fox TV** появится в списке приложений на главном экране.
 
 ## Сборка
+
+### GitHub Actions
+
+Workflow [`.github/workflows/build.yml`](.github/workflows/build.yml) собирает APK при каждом пуше в `main`, в pull request'ах и при ручном запуске (**Actions → Build APK → Run workflow**).
+
+Чтобы выпустить релиз, создайте тег версии — APK автоматически прикрепится к новому релизу:
+
+```bash
+git tag v1.0
+git push origin v1.0
+```
 
 ### Требования
 
