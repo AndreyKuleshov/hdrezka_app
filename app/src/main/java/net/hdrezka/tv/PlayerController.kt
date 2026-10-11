@@ -86,6 +86,12 @@ class PlayerController(
     private var resumeUntil = 0L
     private var countdown = 0
 
+    /** Режим перемотки по полосе: точка на полосе, влево/вправо — по минуте, удержание — непрерывно. */
+    private var scrubbing = false
+    private var scrubPos = 0.0
+    private var scrubDirty = false
+    private var lastScrubStep = 0L
+
     /** Открыт полноэкранный режим самого сайта (onShowCustomView) — обёртка не вмешивается. */
     var externalFullscreen = false
         set(value) {
@@ -156,6 +162,7 @@ class PlayerController(
     }
 
     private fun resetTransient() {
+        stopScrub(commit = false)
         hideNextCard()
         closeQualityMenu()
         webView.removeCallbacks(autoHide)
@@ -237,11 +244,16 @@ class PlayerController(
             if (!qualityMenu.hasFocus()) focusQualityItem()
             return !isVertical(event) && !isOk(event) // влево/вправо в меню качества не нужны
         }
+        if (scrubbing) return handleScrubKey(event)
         if (!controls.hasFocus()) {
             if (first) btnPlay.requestFocusFromTouch()
             return true
         }
-        // Вверх/вниз не должны уводить фокус со строки кнопок на страницу под видео
+        // Вверх — на полосу прогресса (перемотка); вниз ничего не делает, чтобы фокус не ушёл на страницу
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            if (first) startScrub()
+            return true
+        }
         return isVertical(event)
     }
 
@@ -251,8 +263,59 @@ class PlayerController(
             mode == Mode.PAGE -> return false
             nextCard.visibility == View.VISIBLE -> { hideNextCard(); showControls() }
             qualityMenu.visibility == View.VISIBLE -> { closeQualityMenu(); btnQuality.requestFocusFromTouch() }
+            scrubbing -> { stopScrub(commit = false); btnPlay.requestFocusFromTouch(); render() }
             mode == Mode.FULLSCREEN -> showControls()
             else -> exitToPage()
+        }
+        return true
+    }
+
+    // --- Перемотка по полосе ---
+
+    private fun startScrub() {
+        val s = state
+        if (!s.hasPlayer || s.adActive || s.duration <= 0) return
+        scrubbing = true
+        scrubDirty = false
+        scrubPos = s.time
+        webView.removeCallbacks(autoHide)
+        progress.requestFocusFromTouch()
+        render()
+    }
+
+    private fun stopScrub(commit: Boolean) {
+        if (!scrubbing) return
+        if (commit && scrubDirty) js("seekTo(${scrubPos.toLong()})")
+        scrubbing = false
+        scrubDirty = false
+    }
+
+    private fun handleScrubKey(event: KeyEvent): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (down) {
+                    // Удержание: шаг не чаще раза в SCRUB_REPEAT_MS, чтобы точка шла ровно, а не улетала
+                    if (event.repeatCount == 0 || event.eventTime - lastScrubStep >= SCRUB_REPEAT_MS) {
+                        lastScrubStep = event.eventTime
+                        val dir = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                        scrubPos = (scrubPos + dir * SCRUB_STEP_S).coerceIn(0.0, (state.duration - 1).coerceAtLeast(0.0))
+                        scrubDirty = true
+                        render()
+                    }
+                } else if (scrubDirty) {
+                    // Отпустили стрелку — перематываем, точка остаётся на полосе
+                    js("seekTo(${scrubPos.toLong()})")
+                    scrubDirty = false
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (down && event.repeatCount == 0) {
+                stopScrub(commit = true)
+                btnPlay.requestFocusFromTouch()
+                scheduleAutoHide()
+            }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
+                if (!down && scrubDirty) { js("seekTo(${scrubPos.toLong()})"); scrubDirty = false }
         }
         return true
     }
@@ -298,13 +361,14 @@ class PlayerController(
         cursor?.playerActive = m != Mode.PAGE
         overlay.visibility = if (m == Mode.PAGE) View.GONE else View.VISIBLE
         val shown = m == Mode.CONTROLS
+        if (!shown) stopScrub(commit = false)
         top.visibility = if (shown) View.VISIBLE else View.GONE
         controls.visibility = if (shown) View.VISIBLE else View.GONE
         if (!shown) webView.removeCallbacks(autoHide)
         if (m == Mode.PAGE && !wasPage && notify) onExitToPage()
     }
 
-    private fun canAutoHide() = state.playing && !state.canSkip && qualityMenu.visibility != View.VISIBLE
+    private fun canAutoHide() = state.playing && !state.canSkip && !scrubbing && qualityMenu.visibility != View.VISIBLE
 
     private fun scheduleAutoHide() {
         webView.removeCallbacks(autoHide)
@@ -351,11 +415,14 @@ class PlayerController(
         title.text = s.title
         episodeLabel.text = if (s.count > 0) ctx.getString(R.string.episode_label, s.season, s.episode, s.count) else ""
         adBadge.visibility = if (isFullscreen && s.adActive) View.VISIBLE else View.GONE
-        adBadge.text = s.adLabel.ifBlank { ctx.getString(R.string.player_ad) }
+        // Метку рекламы берём у плеера («Реклама 1/2») и переводим
+        adBadge.text = s.adLabel.replace("Реклама", ctx.getString(R.string.player_ad)).ifBlank { ctx.getString(R.string.player_ad) }
 
-        timeLabel.text = fmt(s.time)
+        if (scrubbing && (s.adActive || s.duration <= 0)) stopScrub(commit = false)
+        val shownTime = if (scrubbing) scrubPos else s.time
+        timeLabel.text = fmt(shownTime)
         durationLabel.text = fmt(s.duration)
-        progress.progress = if (s.duration > 0) (s.time / s.duration * 1000).toInt() else 0
+        progress.progress = if (s.duration > 0) (shownTime / s.duration * 1000).toInt() else 0
 
         btnPlay.setText(if (s.playing) R.string.player_pause else R.string.player_play)
         btnQuality.text = if (s.quality.isNotBlank()) ctx.getString(R.string.player_quality_value, s.quality) else ctx.getString(R.string.player_quality)
@@ -497,6 +564,8 @@ class PlayerController(
         private const val AUTO_HIDE_MS = 5000L
         private const val NEXT_COUNTDOWN = 10
         private const val RESUME_TIMEOUT_MS = 15_000L
+        private const val SCRUB_STEP_S = 60.0
+        private const val SCRUB_REPEAT_MS = 150L
 
         /**
          * window.__foxplayer — состояние и команды плеера: PlayerJS API (pljssglobal[0].api),
@@ -540,6 +609,17 @@ if (!window.__foxplayer) (function(){
            e.parentElement.clientHeight <= v.clientHeight * 1.3) e = e.parentElement;
     return e;
   }
+  function anyPlaying() {
+    return [].some.call(document.querySelectorAll('video'), function(v) { return !v.paused && !v.ended && v.readyState > 2; });
+  }
+  // «Смотреть онлайн» на странице сериала — сразу запуск (обёртка уйдёт на весь экран), без прокрутки к плееру
+  document.addEventListener('click', function(ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest('.to_view') : null;
+    if (!b || !root()) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    window.__foxplayer.play();
+  }, true);
   function eps() { return [].slice.call(document.querySelectorAll('.episodes_list a[data-episode]')); }
   function seasons() { return [].slice.call(document.querySelectorAll('.seasons_list a[data-season]')); }
   function activeIndex(list) { for (var i = 0; i < list.length; i++) if (list[i].classList.contains('active')) return i; return -1; }
@@ -569,6 +649,8 @@ if (!window.__foxplayer) (function(){
       var playing = api('playing'), time = api('time'), dur = api('duration');
       if (playing === undefined && v) { playing = !v.paused; time = v.currentTime; dur = v.duration; }
       var ad = adInfo(), q = api('qualities'), cur = e[i] || e[0], h = document.querySelector('h1');
+      // Во время рекламы PlayerJS сообщает состояние серии (на паузе), а играет рекламное видео
+      if (anyPlaying()) playing = true;
       return {
         // Конец серии: по событию PlayerJS или (если хук не сработал) по времени
         player: !!r, playing: !!playing,
@@ -593,8 +675,13 @@ if (!window.__foxplayer) (function(){
     },
     exitFs: function() { this.pause(); return this.fs(false); },
     toggle: function() {
-      if (pj()) { api(api('playing') ? 'pause' : 'play'); return; }
-      var v = video(); if (v) { if (v.paused) v.play(); else v.pause(); }
+      if (anyPlaying()) { this.pause(); return; }
+      if (pj()) api('play');
+      var v = video(); if (v && v.paused) { try { v.play(); } catch (e) {} } // рекламное видео
+    },
+    seekTo: function(t) {
+      if (pj()) { api('seek', Math.max(0, t)); return; }
+      var v = video(); if (v) v.currentTime = Math.max(0, t);
     },
     seek: function(d) {
       if (pj()) { api('seek', Math.max(0, (+api('time') || 0) + d)); return; }

@@ -139,15 +139,20 @@
                     android:textColor="#FFFFFF"
                     android:textSize="18sp" />
 
-                <ProgressBar
+                <!-- Вверх из кнопок — режим перемотки: точка на полосе, влево/вправо по минуте -->
+                <SeekBar
                     android:id="@+id/playerProgress"
-                    style="?android:attr/progressBarStyleHorizontal"
                     android:layout_width="0dp"
-                    android:layout_height="6dp"
+                    android:layout_height="28dp"
+                    android:background="@null"
+                    android:splitTrack="false"
+                    android:thumb="@drawable/scrub_thumb"
+                    android:maxHeight="6dp"
+                    android:minHeight="6dp"
                     android:layout_marginStart="16dp"
                     android:layout_marginEnd="16dp"
                     android:layout_weight="1"
-                    android:focusable="false"
+                    android:focusable="true"
                     android:max="1000"
                     android:progressDrawable="@drawable/player_progress" />
 
