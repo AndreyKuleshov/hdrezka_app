@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CursorLayout — корень: курсор рисуется поверх всего и кликает в любой дочерний view -->
+<net.hdrezka.tv.CursorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cursorLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_gravity="top"
+        android:max="100"
+        android:progressTint="#FF6A00" />
+
+    <TextView
+        android:id="@+id/errorView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="#CC000000"
+        android:padding="24dp"
+        android:text="@string/load_error"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:id="@+id/fullscreenContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:visibility="gone" />
+</net.hdrezka.tv.CursorLayout>

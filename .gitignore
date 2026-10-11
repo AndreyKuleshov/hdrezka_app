@@ -1,0 +1,53 @@
+# --- Gradle ---
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+
+# --- Локальные настройки (путь к SDK, ключи и т.п.) ---
+local.properties
+*.local.properties
+
+# --- Android Studio / IntelliJ ---
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+captures/
+.navigation/
+.externalNativeBuild/
+.cxx/
+
+# --- Собранные артефакты ---
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+output-metadata.json
+
+# --- Подписи и секреты ---
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+
+# --- Логи и временные файлы ---
+*.log
+*.hprof
+*.tmp
+*.swp
+*~
+
+# --- macOS / Windows ---
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# --- Прочие IDE ---
+.vscode/
+.fleet/
+*.workspace
+*.project
