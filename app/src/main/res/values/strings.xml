@@ -11,21 +11,19 @@
     <string name="menu_cursor_on">Mode: arrow cursor (switch to element navigation)</string>
     <string name="menu_cursor_off">Mode: element navigation (switch to arrow cursor)</string>
     <string name="menu_empty">Sections will appear once a site page has loaded</string>
-    <string name="episode_prev">◀ Episode</string>
-    <string name="episode_next">Episode ▶</string>
-    <string name="player_back">⏪ 10 s</string>
-    <string name="player_forward">10 s ⏩</string>
-    <string name="player_play">▶ Play</string>
-    <string name="player_pause">❚❚ Pause</string>
-    <string name="player_quality">Quality</string>
-    <string name="player_quality_value">Quality: %1$s</string>
-    <string name="player_skip">Skip ad ⏭</string>
-    <string name="player_skip_in">⏭ in %1$d s</string>
     <string name="player_ad">Ad</string>
     <string name="next_in">Next episode in %1$d s</string>
     <string name="next_now">Play now</string>
     <string name="next_cancel">Cancel</string>
     <string name="episode_label">Season %1$s · Episode %2$s of %3$d</string>
-    <string name="menu_episode_prev">◀ Previous episode</string>
-    <string name="menu_episode_next">Next episode ▶</string>
+    <string name="menu_episode_prev">Previous episode</string>
+    <string name="menu_episode_next">Next episode</string>
+    <!-- Подписи значков контролов для экранного диктора (на экране не показываются) -->
+    <string name="cd_prev_episode">Previous episode</string>
+    <string name="cd_next_episode">Next episode</string>
+    <string name="cd_back_10">Back 10 seconds</string>
+    <string name="cd_forward_10">Forward 10 seconds</string>
+    <string name="cd_play_pause">Play or pause</string>
+    <string name="cd_quality">Quality</string>
+    <string name="cd_skip_ad">Skip ad</string>
 </resources>

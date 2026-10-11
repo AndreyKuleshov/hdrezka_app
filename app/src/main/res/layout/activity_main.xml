@@ -171,13 +171,22 @@
                 android:layout_marginTop="16dp"
                 android:orientation="horizontal">
 
-                <TextView android:id="@+id/btnPrevEpisode" style="@style/EpisodeButton" android:text="@string/episode_prev" />
-                <TextView android:id="@+id/btnBack10" style="@style/EpisodeButton" android:text="@string/player_back" />
-                <TextView android:id="@+id/btnPlay" style="@style/EpisodeButton" android:minWidth="140dp" android:gravity="center" android:text="@string/player_pause" />
-                <TextView android:id="@+id/btnForward10" style="@style/EpisodeButton" android:text="@string/player_forward" />
-                <TextView android:id="@+id/btnNextEpisode" style="@style/EpisodeButton" android:text="@string/episode_next" />
-                <TextView android:id="@+id/btnQuality" style="@style/EpisodeButton" android:text="@string/player_quality" />
-                <TextView android:id="@+id/btnSkip" style="@style/EpisodeButton" android:text="@string/player_skip" android:visibility="gone" />
+                <ImageView android:id="@+id/btnPrevEpisode" style="@style/PlayerIconButton" android:contentDescription="@string/cd_prev_episode" android:src="@drawable/ic_player_prev" />
+                <ImageView android:id="@+id/btnBack10" style="@style/PlayerIconButton" android:contentDescription="@string/cd_back_10" android:src="@drawable/ic_player_rewind" />
+                <ImageView android:id="@+id/btnPlay" style="@style/PlayerIconButton" android:contentDescription="@string/cd_play_pause" android:src="@drawable/ic_player_pause" />
+                <ImageView android:id="@+id/btnForward10" style="@style/PlayerIconButton" android:contentDescription="@string/cd_forward_10" android:src="@drawable/ic_player_forward" />
+                <ImageView android:id="@+id/btnNextEpisode" style="@style/PlayerIconButton" android:contentDescription="@string/cd_next_episode" android:src="@drawable/ic_player_next" />
+                <ImageView android:id="@+id/btnQuality" style="@style/PlayerIconButton" android:contentDescription="@string/cd_quality" android:src="@drawable/ic_player_quality" />
+                <!-- Пропуск рекламы: значок, пока пропуск недоступен — рядом число секунд -->
+                <TextView
+                    android:id="@+id/btnSkip"
+                    style="@style/EpisodeButton"
+                    android:layout_height="56dp"
+                    android:contentDescription="@string/cd_skip_ad"
+                    android:drawableStart="@drawable/ic_player_skip"
+                    android:drawablePadding="8dp"
+                    android:gravity="center_vertical"
+                    android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
 

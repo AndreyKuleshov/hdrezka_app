@@ -3,6 +3,7 @@ package net.hdrezka.tv
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -61,12 +62,12 @@ class PlayerController(
     private val timeLabel = root.findViewById<TextView>(R.id.playerTime)
     private val durationLabel = root.findViewById<TextView>(R.id.playerDuration)
     private val progress = root.findViewById<ProgressBar>(R.id.playerProgress)
-    private val btnPrev = root.findViewById<TextView>(R.id.btnPrevEpisode)
-    private val btnBack = root.findViewById<TextView>(R.id.btnBack10)
-    private val btnPlay = root.findViewById<TextView>(R.id.btnPlay)
-    private val btnForward = root.findViewById<TextView>(R.id.btnForward10)
-    private val btnNext = root.findViewById<TextView>(R.id.btnNextEpisode)
-    private val btnQuality = root.findViewById<TextView>(R.id.btnQuality)
+    private val btnPrev = root.findViewById<ImageView>(R.id.btnPrevEpisode)
+    private val btnBack = root.findViewById<ImageView>(R.id.btnBack10)
+    private val btnPlay = root.findViewById<ImageView>(R.id.btnPlay)
+    private val btnForward = root.findViewById<ImageView>(R.id.btnForward10)
+    private val btnNext = root.findViewById<ImageView>(R.id.btnNextEpisode)
+    private val btnQuality = root.findViewById<ImageView>(R.id.btnQuality)
     private val btnSkip = root.findViewById<TextView>(R.id.btnSkip)
     private val qualityMenu = root.findViewById<LinearLayout>(R.id.qualityMenu)
     private val nextCard = root.findViewById<View>(R.id.nextCard)
@@ -425,8 +426,7 @@ class PlayerController(
         durationLabel.text = fmt(s.duration)
         progress.progress = if (s.duration > 0) (shownTime / s.duration * 1000).toInt() else 0
 
-        btnPlay.setText(if (s.playing) R.string.player_pause else R.string.player_play)
-        btnQuality.text = if (s.quality.isNotBlank()) ctx.getString(R.string.player_quality_value, s.quality) else ctx.getString(R.string.player_quality)
+        btnPlay.setImageResource(if (s.playing) R.drawable.ic_player_pause else R.drawable.ic_player_play)
 
         val noAd = !s.adActive
         setEnabled(btnPrev, noAd && s.hasPrev)
@@ -439,7 +439,8 @@ class PlayerController(
 
         btnSkip.visibility = if (s.adActive && (s.canSkip || s.skipIn >= 0)) View.VISIBLE else View.GONE
         setEnabled(btnSkip, s.canSkip)
-        btnSkip.text = if (s.canSkip) ctx.getString(R.string.player_skip) else ctx.getString(R.string.player_skip_in, s.skipIn.coerceAtLeast(0))
+        // Только значок; пока пропуск недоступен — рядом число секунд до него
+        btnSkip.text = if (s.canSkip) "" else s.skipIn.coerceAtLeast(0).toString()
     }
 
     /** Неактивная кнопка видна, но затемнена и пропускается при переходе стрелками. */

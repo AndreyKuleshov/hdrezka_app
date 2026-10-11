@@ -22,4 +22,20 @@
         <item name="android:layout_marginEnd">2dp</item>
         <item name="android:maxLines">1</item>
     </style>
+
+    <!-- Кнопка-значок в контролах плеера -->
+    <style name="PlayerIconButton">
+        <item name="android:layout_width">64dp</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">@drawable/menu_item_bg</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
 </resources>
