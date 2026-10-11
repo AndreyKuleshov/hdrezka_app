@@ -66,7 +66,7 @@ class PlayerController(
     private val btnBack = root.findViewById<ImageView>(R.id.btnBack10)
     private val btnPlay = root.findViewById<ImageView>(R.id.btnPlay)
     private val btnForward = root.findViewById<ImageView>(R.id.btnForward10)
-    private val btnNext = root.findViewById<ImageView>(R.id.btnNextEpisode)
+    private val btnNext = root.findViewById<TextView>(R.id.btnNextEpisode)
     private val btnQuality = root.findViewById<ImageView>(R.id.btnQuality)
     private val btnSkip = root.findViewById<TextView>(R.id.btnSkip)
     private val qualityMenu = root.findViewById<LinearLayout>(R.id.qualityMenu)
@@ -439,8 +439,7 @@ class PlayerController(
 
         btnSkip.visibility = if (s.adActive && (s.canSkip || s.skipIn >= 0)) View.VISIBLE else View.GONE
         setEnabled(btnSkip, s.canSkip)
-        // Только значок; пока пропуск недоступен — рядом число секунд до него
-        btnSkip.text = if (s.canSkip) "" else s.skipIn.coerceAtLeast(0).toString()
+        btnSkip.text = if (s.canSkip) ctx.getString(R.string.skip_ad) else ctx.getString(R.string.skip_in, s.skipIn.coerceAtLeast(0))
     }
 
     /** Неактивная кнопка видна, но затемнена и пропускается при переходе стрелками. */

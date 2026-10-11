@@ -12,6 +12,9 @@
     <string name="menu_cursor_off">Mode: element navigation (switch to arrow cursor)</string>
     <string name="menu_empty">Sections will appear once a site page has loaded</string>
     <string name="player_ad">Ad</string>
+    <string name="skip_ad">Skip ad</string>
+    <string name="skip_in">Skip in %1$d s</string>
+    <string name="next_episode">Next episode</string>
     <string name="next_in">Next episode in %1$d s</string>
     <string name="next_now">Play now</string>
     <string name="next_cancel">Cancel</string>
