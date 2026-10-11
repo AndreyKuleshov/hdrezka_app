@@ -176,12 +176,9 @@ class MainActivity : AppCompatActivity() {
             when {
                 menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
-                webView.canGoBack() -> webView.goBack()
-                System.currentTimeMillis() - lastBackPress < 2000 -> finish()
-                else -> {
-                    lastBackPress = System.currentTimeMillis()
-                    Toast.makeText(this@MainActivity, R.string.press_back_again, Toast.LENGTH_SHORT).show()
-                }
+                // Сначала закрываем открытый на странице выпадающий список, потом уходим назад
+                !cursorLayout.cursorEnabled -> spatialNav.escape { closed -> if (!closed) navigateBack() }
+                else -> navigateBack()
             }
         }
 
@@ -189,6 +186,17 @@ class MainActivity : AppCompatActivity() {
             webView.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: BuildConfig.START_URL)
         }
         webView.requestFocus()
+    }
+
+    private fun navigateBack() {
+        when {
+            webView.canGoBack() -> webView.goBack()
+            System.currentTimeMillis() - lastBackPress < 2000 -> finish()
+            else -> {
+                lastBackPress = System.currentTimeMillis()
+                Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     /** Обновить список разделов из меню текущей страницы сайта. */
