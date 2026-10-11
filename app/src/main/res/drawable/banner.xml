@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Баннер 320x180 для лаунчера Android TV -->
+<!-- Баннер 320x180 для лаунчера Android TV. Отступы вместо gravity/width/height — те работают только с API 23 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
@@ -7,6 +7,10 @@
             <size android:width="320dp" android:height="180dp" />
         </shape>
     </item>
-    <item android:gravity="center" android:width="120dp" android:height="120dp"
-        android:drawable="@drawable/ic_play" />
+    <item
+        android:drawable="@drawable/ic_play"
+        android:bottom="30dp"
+        android:left="100dp"
+        android:right="100dp"
+        android:top="30dp" />
 </layer-list>

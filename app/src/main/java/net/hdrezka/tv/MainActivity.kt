@@ -2,9 +2,12 @@ package net.hdrezka.tv
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import android.os.Message
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -17,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -35,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private var lastBackPress = 0L
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
+    private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,22 +55,17 @@ class MainActivity : AppCompatActivity() {
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
 
         cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, true)
-        cursorLayout.onEdgeScroll = { dx, dy ->
-            if (customView == null) {
-                webView.evaluateJavascript("window.scrollBy($dx,$dy)", null)
-            }
-        }
 
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
             builtInZoomControls = false
             displayZoomControls = false
-            setSupportMultipleWindows(false) // target=_blank открываем в этом же окне
+            // Новые окна (target=_blank, window.open) перехватываем в onCreateWindow
+            setSupportMultipleWindows(true)
             javaScriptCanOpenWindowsAutomatically = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             cacheMode = WebSettings.LOAD_DEFAULT
@@ -78,23 +78,31 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val scheme = request.url.scheme?.lowercase()
-                // Блокируем intent://, market:// и прочие внешние схемы (рекламные редиректы)
-                return scheme != "http" && scheme != "https"
-            }
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                isBlockedScheme(request.url)
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                isBlockedScheme(Uri.parse(url)) // API 21–23
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 errorView.visibility = View.GONE
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                prefs.edit().putString(KEY_LAST_URL, url).apply()
+                // Запоминаем только страницы самого сайта, чтобы не открывать рекламу при запуске
+                if (isSameSite(Uri.parse(url))) prefs.edit().putString(KEY_LAST_URL, url).apply()
                 CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) errorView.visibility = View.VISIBLE
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
+                // API 21–22: вызывается только для основного фрейма
+                errorView.visibility = View.VISIBLE
             }
         }
 
@@ -102,6 +110,24 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
+            }
+
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+                if (!isUserGesture) return false
+                // Временный WebView узнаёт адрес нового окна; ссылки сайта открываем здесь же,
+                // всё остальное (всплывающая реклама) отбрасываем
+                val popup = WebView(this@MainActivity)
+                popup.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean =
+                        openPopupUrl(v, request.url)
+
+                    @Deprecated("Deprecated in Java")
+                    override fun shouldOverrideUrlLoading(v: WebView, url: String): Boolean =
+                        openPopupUrl(v, Uri.parse(url))
+                }
+                (resultMsg.obj as WebView.WebViewTransport).webView = popup
+                resultMsg.sendToTarget()
+                return true
             }
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
@@ -115,17 +141,46 @@ class MainActivity : AppCompatActivity() {
                 fullscreenContainer.visibility = View.VISIBLE
                 webView.visibility = View.INVISIBLE
                 hideSystemBars()
+                view.isFocusable = true
+                view.requestFocus()
             }
 
             override fun onHideCustomView() = exitFullscreen()
         }
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState)
-        } else {
+        onBackPressedDispatcher.addCallback(this) {
+            when {
+                customView != null -> exitFullscreen()
+                webView.canGoBack() -> webView.goBack()
+                System.currentTimeMillis() - lastBackPress < 2000 -> finish()
+                else -> {
+                    lastBackPress = System.currentTimeMillis()
+                    Toast.makeText(this@MainActivity, R.string.press_back_again, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: BuildConfig.START_URL)
         }
-        cursorLayout.requestFocus()
+        webView.requestFocus()
+    }
+
+    private fun isBlockedScheme(url: Uri): Boolean {
+        val scheme = url.scheme?.lowercase()
+        // Блокируем intent://, market:// и прочие внешние схемы (рекламные редиректы)
+        return scheme != "http" && scheme != "https"
+    }
+
+    private fun isSameSite(url: Uri): Boolean {
+        val host = url.host ?: return false
+        return host == siteHost || host.endsWith(".$siteHost")
+    }
+
+    private fun openPopupUrl(popup: WebView, url: Uri): Boolean {
+        if (isSameSite(url)) webView.loadUrl(url.toString())
+        popup.post { popup.destroy() }
+        return true
     }
 
     private fun exitFullscreen() {
@@ -136,7 +191,7 @@ class MainActivity : AppCompatActivity() {
         customView = null
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
-        cursorLayout.requestFocus()
+        webView.requestFocus()
     }
 
     private fun hideSystemBars() {
@@ -154,17 +209,16 @@ class MainActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> {
                     toggleCursor(); return true
                 }
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY,
-                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                    mediaJs("v.paused ? v.play() : v.pause()"); return true
-                }
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { mediaJs("v.paused ? v.play() : v.pause()"); return true }
+                KeyEvent.KEYCODE_MEDIA_PLAY -> { mediaJs("v.play()"); return true }
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> { mediaJs("v.pause()"); return true }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { mediaJs("v.currentTime += 15"); return true }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> { mediaJs("v.currentTime -= 15"); return true }
                 KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                    webView.pageDown(false); return true
+                    cursorLayout.scrollAtCursor(0f, cursorLayout.height * 0.8f); return true
                 }
                 KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
-                    webView.pageUp(false); return true
+                    cursorLayout.scrollAtCursor(0f, -cursorLayout.height * 0.8f); return true
                 }
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                     if (errorView.visibility == View.VISIBLE) {
@@ -176,10 +230,16 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    /** Управление первым <video> на странице (работает, если плеер не в чужом iframe). */
+    /**
+     * Управление основным <video> на странице — самым большим по площади,
+     * чтобы не попасть в маленькое рекламное превью. Не работает, если плеер в чужом iframe.
+     */
     private fun mediaJs(action: String) {
         webView.evaluateJavascript(
-            "(function(){var v=document.querySelector('video');if(v){$action;}})()", null
+            "(function(){var v=Array.prototype.slice.call(document.querySelectorAll('video'))" +
+                ".sort(function(a,b){return b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight})[0];" +
+                "if(v){$action;}})()",
+            null
         )
     }
 
@@ -187,26 +247,9 @@ class MainActivity : AppCompatActivity() {
         val enabled = !cursorLayout.cursorEnabled
         cursorLayout.cursorEnabled = enabled
         prefs.edit().putBoolean(KEY_CURSOR, enabled).apply()
-        if (!enabled) webView.requestFocus() else cursorLayout.requestFocus()
         Toast.makeText(
             this, if (enabled) R.string.mode_cursor else R.string.mode_dpad, Toast.LENGTH_SHORT
         ).show()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        when {
-            customView != null -> exitFullscreen()
-            webView.canGoBack() -> webView.goBack()
-            System.currentTimeMillis() - lastBackPress < 2000 -> {
-                @Suppress("DEPRECATION")
-                super.onBackPressed()
-            }
-            else -> {
-                lastBackPress = System.currentTimeMillis()
-                Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -227,6 +270,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        exitFullscreen()
+        (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
         super.onDestroy()
     }

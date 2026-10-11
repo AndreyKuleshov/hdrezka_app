@@ -4,28 +4,34 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.Build
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * Контейнер с «мышиным» курсором для пульта: стрелки двигают курсор,
- * OK — клик (касание) в точке курсора, у краёв экрана страница прокручивается.
+ * OK — клик (касание) в точке курсора, у краёв экрана прокручивается
+ * элемент под курсором (колесом мыши — работает и для вложенных списков).
+ *
+ * Фокус остаётся у дочернего WebView: клавиши перехватываются здесь,
+ * в dispatchKeyEvent корневого view, поэтому поля ввода получают клавиатуру.
  */
 class CursorLayout @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : FrameLayout(context, attrs) {
 
-    /** Вызывается, когда курсор упирается в край: dx/dy — сколько прокрутить. */
-    var onEdgeScroll: ((dx: Int, dy: Int) -> Unit)? = null
-
     var cursorEnabled = true
         set(value) {
             field = value
+            stopMovement()
             invalidate()
         }
 
@@ -37,6 +43,10 @@ class CursorLayout @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 2f * density
     }
+
+    /** Сколько пикселей прокручивает одна единица AXIS_VSCROLL/AXIS_HSCROLL. */
+    private val scrollFactorV: Float
+    private val scrollFactorH: Float
 
     private var cx = -1f
     private var cy = -1f
@@ -53,16 +63,31 @@ class CursorLayout @JvmOverloads constructor(
             lastFrame = now
             // Скорость растёт при удержании кнопки: от 250 до 1400 dp/с
             val held = (now - moveStart) / 1000f
-            val speed = min(250f + held * 900f, 1400f) * density
+            var speed = min(250f + held * 900f, 1400f) * density
+            if (dirX != 0 && dirY != 0) speed /= sqrt(2f) // по диагонали не быстрее
             move(dirX * speed * dt, dirY * speed * dt)
             postOnAnimation(this)
         }
     }
 
+    private val startTicker = Runnable {
+        if (dirX != 0 || dirY != 0) {
+            lastFrame = SystemClock.uptimeMillis()
+            postOnAnimation(ticker)
+        }
+    }
+
     init {
         setWillNotDraw(false)
-        isFocusable = true
-        isFocusableInTouchMode = true
+        descendantFocusability = FOCUS_AFTER_DESCENDANTS
+        val vc = ViewConfiguration.get(context)
+        if (Build.VERSION.SDK_INT >= 26) {
+            scrollFactorV = vc.scaledVerticalScrollFactor
+            scrollFactorH = vc.scaledHorizontalScrollFactor
+        } else {
+            scrollFactorV = 64f * density
+            scrollFactorH = 64f * density
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -71,9 +96,27 @@ class CursorLayout @JvmOverloads constructor(
             cx = w / 2f
             cy = h / 2f
         } else {
-            cx = cx.coerceIn(0f, w.toFloat())
-            cy = cy.coerceIn(0f, h.toFloat())
+            cx = cx.coerceIn(0f, w - 1f)
+            cy = cy.coerceIn(0f, h - 1f)
         }
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        // Key-up мог уйти в другое окно (диалог, системное меню) — иначе курсор «уплывёт»
+        if (!hasWindowFocus) stopMovement()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopMovement()
+        super.onDetachedFromWindow()
+    }
+
+    private fun stopMovement() {
+        dirX = 0
+        dirY = 0
+        removeCallbacks(startTicker)
+        removeCallbacks(ticker)
     }
 
     private fun move(dx: Float, dy: Float) {
@@ -81,14 +124,43 @@ class CursorLayout @JvmOverloads constructor(
         val ny = cy + dy
         val maxX = width - 1f
         val maxY = height - 1f
-        var scrollX = 0
-        var scrollY = 0
-        if (nx < 0f) scrollX = nx.toInt() else if (nx > maxX) scrollX = (nx - maxX).toInt()
-        if (ny < 0f) scrollY = ny.toInt() else if (ny > maxY) scrollY = (ny - maxY).toInt()
+        var overX = 0f
+        var overY = 0f
+        if (nx < 0f) overX = nx else if (nx > maxX) overX = nx - maxX
+        if (ny < 0f) overY = ny else if (ny > maxY) overY = ny - maxY
         cx = nx.coerceIn(0f, maxX)
         cy = ny.coerceIn(0f, maxY)
-        if (scrollX != 0 || scrollY != 0) onEdgeScroll?.invoke(scrollX, scrollY)
+        if (overX != 0f || overY != 0f) scrollAtCursor(overX, overY)
+        dispatchMouse(MotionEvent.ACTION_HOVER_MOVE) { }
         invalidate()
+    }
+
+    /** Прокрутить элемент под курсором на dx/dy пикселей (колесо мыши). */
+    fun scrollAtCursor(dx: Float, dy: Float) {
+        dispatchMouse(MotionEvent.ACTION_SCROLL) {
+            setAxisValue(MotionEvent.AXIS_VSCROLL, -dy / scrollFactorV)
+            setAxisValue(MotionEvent.AXIS_HSCROLL, dx / scrollFactorH)
+        }
+    }
+
+    private inline fun dispatchMouse(action: Int, axes: MotionEvent.PointerCoords.() -> Unit) {
+        if (cx < 0) return
+        val t = SystemClock.uptimeMillis()
+        val props = MotionEvent.PointerProperties().apply {
+            id = 0
+            toolType = MotionEvent.TOOL_TYPE_MOUSE
+        }
+        val coords = MotionEvent.PointerCoords().apply {
+            x = cx
+            y = cy
+            axes()
+        }
+        val ev = MotionEvent.obtain(
+            t, t, action, 1, arrayOf(props), arrayOf(coords),
+            0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0
+        )
+        super.dispatchGenericMotionEvent(ev)
+        ev.recycle()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -100,12 +172,19 @@ class CursorLayout @JvmOverloads constructor(
             KeyEvent.KEYCODE_DPAD_UP -> setDir(down, 0, -1, event)
             KeyEvent.KEYCODE_DPAD_DOWN -> setDir(down, 0, 1, event)
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                // Enter с полноценной клавиатуры отдаём странице (отправка формы и т.п.)
+                if (event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER && isFullKeyboard(event)) {
+                    return super.dispatchKeyEvent(event)
+                }
                 if (down && event.repeatCount == 0) click()
             }
             else -> return super.dispatchKeyEvent(event)
         }
         return true
     }
+
+    private fun isFullKeyboard(event: KeyEvent): Boolean =
+        event.device?.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
 
     private fun setDir(down: Boolean, x: Int, y: Int, event: KeyEvent) {
         if (down) {
@@ -117,25 +196,39 @@ class CursorLayout @JvmOverloads constructor(
             val now = SystemClock.uptimeMillis()
             moveStart = now
             lastFrame = now
+            removeCallbacks(startTicker)
             removeCallbacks(ticker)
-            postDelayed({ if (dirX != 0 || dirY != 0) { lastFrame = SystemClock.uptimeMillis(); postOnAnimation(ticker) } }, 150)
+            postDelayed(startTicker, 150)
         } else {
             if (x != 0 && dirX == x) dirX = 0
             if (y != 0 && dirY == y) dirY = 0
-            if (dirX == 0 && dirY == 0) removeCallbacks(ticker)
+            if (dirX == 0 && dirY == 0) {
+                removeCallbacks(startTicker)
+                removeCallbacks(ticker)
+            }
         }
     }
 
     private fun click() {
         val t = SystemClock.uptimeMillis()
-        val downEv = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, cx, cy, 0)
-        val upEv = MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, cx, cy, 0)
-        downEv.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
-        upEv.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
-        super.dispatchTouchEvent(downEv)
-        super.dispatchTouchEvent(upEv)
-        downEv.recycle()
-        upEv.recycle()
+        val props = MotionEvent.PointerProperties().apply {
+            id = 0
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+        val coords = MotionEvent.PointerCoords().apply {
+            x = cx
+            y = cy
+            pressure = 1f
+            size = 1f
+        }
+        for ((action, time) in listOf(MotionEvent.ACTION_DOWN to t, MotionEvent.ACTION_UP to t + 50)) {
+            val ev = MotionEvent.obtain(
+                t, time, action, 1, arrayOf(props), arrayOf(coords),
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
+            )
+            super.dispatchTouchEvent(ev)
+            ev.recycle()
+        }
     }
 
     override fun dispatchDraw(canvas: Canvas) {

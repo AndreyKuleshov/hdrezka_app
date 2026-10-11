@@ -18,11 +18,24 @@ android {
 
     buildFeatures { buildConfig = true }
 
+    // Постоянный ключ подписи берётся из переменных окружения (в CI — из GitHub Secrets).
+    // Без него release подписывается debug-ключом, который у каждой машины свой.
+    val releaseStore = System.getenv("SIGNING_STORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = releaseStore
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Для простоты release подписывается debug-ключом — замените на свой при необходимости
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
