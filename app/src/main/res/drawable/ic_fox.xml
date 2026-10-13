@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Мордочка лисы одной линией: острые уши, клин щёк, глаза и нос.
+     Рисуется контуром, поэтому одинаково читается и в значке, и в баннере TV -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Левое ухо -->
+    <path
+        android:pathData="M30,44 L34,20 L50,34"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Правое ухо -->
+    <path
+        android:pathData="M78,44 L74,20 L58,34"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Щёки, сходящиеся к подбородку -->
+    <path
+        android:pathData="M30,44 C27,58 34,72 54,86 C74,72 81,58 78,44"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Глаза -->
+    <path
+        android:pathData="M42,54 L49,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M66,54 L59,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+    <!-- Нос -->
+    <path
+        android:pathData="M54,72 L48,65 L60,65 Z"
+        android:fillColor="#FFFFFF" />
+</vector>

@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Баннер 320x180 для лаунчера Android TV. Отступы вместо gravity/width/height — те работают только с API 23 -->
+<!-- Баннер 320x180 для лаунчера Android TV: мордочка лисы на оранжевом градиенте.
+     Отступы вместо gravity/width/height — те работают только с API 23 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <gradient android:angle="0" android:startColor="#1B1B1F" android:endColor="#FF6A00" />
+            <gradient android:angle="135" android:startColor="#FF8A2B" android:endColor="#E65100" />
             <size android:width="320dp" android:height="180dp" />
         </shape>
     </item>
     <item
-        android:drawable="@drawable/ic_play"
-        android:bottom="30dp"
+        android:drawable="@drawable/ic_fox"
+        android:bottom="14dp"
         android:left="100dp"
         android:right="100dp"
-        android:top="30dp" />
+        android:top="14dp" />
 </layer-list>

@@ -1,3 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фон значка: оранжевый градиент по диагонали -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FF6A00" />
+    <gradient
+        android:angle="135"
+        android:startColor="#FF8A2B"
+        android:endColor="#E65100"
+        android:type="linear" />
 </shape>
