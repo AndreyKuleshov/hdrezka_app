@@ -13,10 +13,15 @@ class FoxBridge(
     private val store: WatchStore,
     /** Открыть библиотеку: вызывается из потока WebView, поэтому переводится в UI-поток. */
     private val onOpenLibrary: () -> Unit,
+    /** Открыть панель разделов вместо меню сайта. */
+    private val onOpenMenu: () -> Unit,
 ) {
 
     @JavascriptInterface
     fun openLibrary() = onOpenLibrary()
+
+    @JavascriptInterface
+    fun openMenu() = onOpenMenu()
 
     @JavascriptInterface
     fun isFavorite(url: String): Boolean = store.isFavorite(url)
@@ -94,6 +99,18 @@ class FoxBridge(
       var any = Object.keys(JSON.parse(FoxApp.progressMap() || '{}')).length > 0;
       eye.setAttribute('data-has', any ? '1' : '0');
     } catch (e) {}
+  }
+
+  // Бургер сайта открывает панель разделов приложения: два меню — лишнее, тем более что
+  // наша панель и так собрана из разделов сайта и дополнена действиями приложения
+  var burger = document.getElementById('open_menu');
+  if (burger && !burger.hasAttribute('data-foxmenu')) {
+    burger.setAttribute('data-foxmenu', '1');
+    burger.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { FoxApp.openMenu(); } catch (e) {}
+    }, true);
   }
 
   function poster() {

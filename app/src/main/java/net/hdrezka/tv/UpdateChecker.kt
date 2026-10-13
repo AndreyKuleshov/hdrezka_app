@@ -2,6 +2,7 @@ package net.hdrezka.tv
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -44,11 +45,23 @@ class UpdateChecker(private val context: Context) {
         }
     }
 
+    enum class InstallResult {
+        /** Установщик открыт. */
+        STARTED,
+        /** Нет разрешения «устанавливать неизвестные приложения», открыт экран настроек. */
+        NEED_PERMISSION,
+        /** Подпись не совпадает: Android откажет с «package conflicts with an existing package». */
+        SIGNATURE_MISMATCH,
+        FAILED,
+    }
+
     /**
-     * Отдать APK системному установщику. На Android 8+ сначала нужно разрешение
-     * «устанавливать неизвестные приложения» — если его нет, открываем нужный экран настроек.
+     * Отдать APK системному установщику. Перед этим сверяем подпись: релизы подписаны
+     * постоянным ключом, а локальная debug-сборка — своим, и система такую замену отклонит.
+     * Лучше сказать об этом понятно, чем показать системную ошибку про конфликт пакетов.
      */
-    fun install(file: File): Boolean {
+    fun install(file: File): InstallResult {
+        if (!signatureMatches(file)) return InstallResult.SIGNATURE_MISMATCH
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !context.packageManager.canRequestPackageInstalls()
         ) {
@@ -56,13 +69,27 @@ class UpdateChecker(private val context: Context) {
                 .setData(Uri.parse("package:${context.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(intent) }
-            return false
+            return InstallResult.NEED_PERMISSION
         }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        return runCatching { context.startActivity(intent); true }.getOrDefault(false)
+        return runCatching { context.startActivity(intent); InstallResult.STARTED }
+            .getOrDefault(InstallResult.FAILED)
+    }
+
+    /** Сравниваем подпись установленного приложения и скачанного APK. */
+    @Suppress("DEPRECATION") // GET_SIGNATURES — единственный вариант на minSdk 21
+    private fun signatureMatches(file: File): Boolean = try {
+        val pm = context.packageManager
+        val mine = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
+        val theirs = pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNATURES)?.signatures
+        // Не смогли прочитать — не мешаем, пусть решает система
+        if (mine == null || theirs == null) true
+        else mine.map { it.toCharsString() }.toSet() == theirs.map { it.toCharsString() }.toSet()
+    } catch (e: Exception) {
+        true
     }
 
     private fun fetchLatest(): Release? {

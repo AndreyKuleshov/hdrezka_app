@@ -118,7 +118,12 @@ class MainActivity : AppCompatActivity() {
         // Страница спрашивает у приложения, что просмотрено и отложено, и рисует это у себя.
         // Мост вызывается из потока WebView, поэтому открытие экрана переводим в UI-поток
         webView.addJavascriptInterface(
-            FoxBridge(store) { runOnUiThread { openLibrary() } }, FoxBridge.NAME
+            FoxBridge(
+                store,
+                onOpenLibrary = { runOnUiThread { openLibrary() } },
+                onOpenMenu = { runOnUiThread { openMenu() } },
+            ),
+            FoxBridge.NAME,
         )
 
         webView.webViewClient = object : WebViewClient() {
@@ -330,8 +335,14 @@ class MainActivity : AppCompatActivity() {
             when {
                 isFinishing || isDestroyed -> Unit
                 file == null -> toast(R.string.update_download_failed)
-                // false — не хватает разрешения, нужный экран настроек уже открыт
-                !updater.install(file) -> toast(R.string.update_permission)
+                else -> when (updater.install(file)) {
+                    // Подпись не совпала: система отказала бы невнятным «конфликтом пакетов»
+                    UpdateChecker.InstallResult.SIGNATURE_MISMATCH -> toast(R.string.update_signature)
+                    // Нужный экран настроек уже открыт, остаётся вернуться и повторить
+                    UpdateChecker.InstallResult.NEED_PERMISSION -> toast(R.string.update_permission)
+                    UpdateChecker.InstallResult.FAILED -> toast(R.string.update_download_failed)
+                    UpdateChecker.InstallResult.STARTED -> Unit
+                }
             }
         }
     }
