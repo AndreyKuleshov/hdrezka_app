@@ -36,7 +36,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Код — 90% размера APK; R8 убирает неиспользуемое из appcompat и Kotlin
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         debug {
