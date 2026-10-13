@@ -4,10 +4,12 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 
 /** Раздел сайта: название, адрес и уровень вложенности (0 — пункт меню, 1 — подпункт). */
@@ -30,17 +32,36 @@ class MenuPanel(
     fun open(sections: List<Section>, onSection: (Section) -> Unit, actions: List<Action>) {
         items.removeAllViews()
         items.addView(header(panel.context.getString(R.string.menu_title)))
+        // Действия приложения — наверху: панель открывается долгим OK как его «пульт», а раньше
+        // «Reload page» и смена режима лежали за всеми жанрами сайта, в 37 нажатиях вниз
+        actions.forEach { a -> items.addView(item(a.title, 0, a.run)) }
+        if (actions.isNotEmpty() && sections.isNotEmpty()) items.addView(divider())
         if (sections.isEmpty()) {
             items.addView(note(panel.context.getString(R.string.menu_empty)))
         }
         sections.forEach { s -> items.addView(item(s.title, s.level) { onSection(s) }) }
-        items.addView(divider())
-        actions.forEach { a -> items.addView(item(a.title, 0, a.run)) }
 
         panel.visibility = View.VISIBLE
         panel.scrollTo(0, 0)
-        // Фокус на первый пункт после заголовка
-        items.post { (0 until items.childCount).map(items::getChildAt).firstOrNull { it.isFocusable }?.requestFocusFromTouch() }
+        items.post {
+            val focusables = (0 until items.childCount).map(items::getChildAt).filter { it.isFocusable }
+            focusables.firstOrNull()?.requestFocusFromTouch()
+            // Перенос по краям: вниз с последнего — на первый, вверх с первого — на последний,
+            // иначе длинный список жанров упирается в тупик
+            val top = focusables.firstOrNull()
+            val bottom = focusables.lastOrNull()
+            if (top != null && bottom != null && top !== bottom) {
+                top.setOnKeyListener { _, code, ev -> jump(ev, code, KeyEvent.KEYCODE_DPAD_UP, bottom) }
+                bottom.setOnKeyListener { _, code, ev -> jump(ev, code, KeyEvent.KEYCODE_DPAD_DOWN, top) }
+            }
+        }
+    }
+
+    /** Перенос фокуса на другой конец списка по стрелке [want]. */
+    private fun jump(ev: KeyEvent, code: Int, want: Int, target: View): Boolean {
+        if (ev.action != KeyEvent.ACTION_DOWN || code != want) return false
+        target.requestFocusFromTouch()
+        return true
     }
 
     fun close() {
@@ -61,7 +82,7 @@ class MenuPanel(
     private fun note(text: String) = TextView(panel.context).apply {
         this.text = text
         setTextColor(Color.LTGRAY)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f) // минимум для основного текста на 1080p ТВ
         setPadding(dp(16), dp(8), dp(16), dp(8))
     }
 
@@ -74,8 +95,9 @@ class MenuPanel(
 
     private fun item(text: String, level: Int, onClick: () -> Unit) = TextView(panel.context).apply {
         this.text = text
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (level == 0) 20f else 17f)
+        // В фокусе пункт заливается оранжевым: белый текст на нём даёт 2.87:1, тёмный — 6.5:1
+        setTextColor(ContextCompat.getColorStateList(panel.context, R.color.focus_text))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (level == 0) 20f else 18f)
         if (level > 0) alpha = 0.85f
         gravity = Gravity.CENTER_VERTICAL
         minHeight = dp(48)
@@ -100,9 +122,13 @@ class MenuPanel(
     var a = links[i];
     var t = (a.textContent || '').replace(/\s+/g, ' ').trim();
     if (t.length < 2 || t.length > 40) continue;
+    // Служебные ссылки подвала («Обратная связь», «Правообладателям») — это не разделы каталога
+    if (a.closest && a.closest('footer,.footer,[class*="footer"]')) continue;
+    if (/обратная связь|правообладател|контакт|жалоб|реклам/i.test(t)) continue;
     var u;
     try { u = new URL(a.getAttribute('href'), location.href); } catch (e) { continue; }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+    if (/feedback|dmca|copyright|abuse|contact|advert/i.test(u.pathname)) continue;
     if (u.hostname !== host && u.hostname.slice(-host.length - 1) !== '.' + host) continue;
     u.hash = '';
     if (seen[u.href]) continue;
