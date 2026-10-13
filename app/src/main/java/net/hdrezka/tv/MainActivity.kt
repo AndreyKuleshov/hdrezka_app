@@ -644,6 +644,7 @@ class MainActivity : AppCompatActivity() {
         webView.onPause()
         webView.pauseTimers() // onPause не останавливает JS: таймеры сайта крутились бы в фоне
         player.onBackground()
+        store.flush() // история и отложенные копятся в памяти — на диск их сбрасываем здесь
         CookieManager.getInstance().flush()
     }
 
@@ -659,6 +660,7 @@ class MainActivity : AppCompatActivity() {
         posters.shutdown()
         updater.shutdown()
         player.release() // снять отложенные задачи, пока WebView ещё прикреплён
+        store.flush()
         exitFullscreen()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
