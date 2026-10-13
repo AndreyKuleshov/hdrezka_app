@@ -170,6 +170,8 @@ class MainActivity : AppCompatActivity() {
                     player.onPageFinished()
                     // Ключ новый на каждую загрузку и попадает только в наш скрипт
                     view.evaluateJavascript(FoxBridge.libraryJs(bridge.newKey()), null)
+                    // Скрипт плеера прячет родную панель сам; в режиме курсора возвращаем её
+                    if (cursorLayout.cursorEnabled) player.setNativeControls(true)
                     // Рамка появляется сама, не дожидаясь первой стрелки: иначе страница
                     // открывается без видимого фокуса, а первая стрелка уводит его в шапку.
                     // Вторая попытка — для блоков, которые догружаются после onPageFinished
@@ -628,6 +630,7 @@ class MainActivity : AppCompatActivity() {
         val enabled = !cursorLayout.cursorEnabled
         cursorLayout.cursorEnabled = enabled
         prefs.edit().putBoolean(KEY_CURSOR, enabled).apply()
+        player.setNativeControls(enabled) // мышью нажимают по панели самого плеера
         if (enabled) spatialNav.reset()
         Toast.makeText(
             this, if (enabled) R.string.mode_cursor else R.string.mode_dpad, Toast.LENGTH_SHORT

@@ -581,6 +581,14 @@ class PlayerController(
 
     // --- Реклама и следующая серия ---
 
+    /**
+     * Показывать ли родные контролы PlayerJS. По умолчанию они погашены: приложение управляет
+     * плеером через API и рисует свою панель. В режиме курсора ими пользуются мышью — возвращаем.
+     */
+    fun setNativeControls(show: Boolean) {
+        webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.nativeControls($show)")
+    }
+
     private fun skipAd() {
         webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.skipTarget()") { result ->
             try {
@@ -728,7 +736,12 @@ if (!window.__foxplayer) (function(){
     // Надпись сайта «Реклама 1/2» гасим только визуально: по ней же определяется состояние
     // рекламы, а в кадре она дублировала собственную метку приложения на другом языке
     '.__foxfs .__foxadlabel{opacity:0 !important;}' +
+    // Родная панель PlayerJS: приложение управляет плеером через его API и рисует свою панель
+    // поверх, так что в кадре родная лишняя. Гасим прозрачностью, а не display — по её кнопкам
+    // приложение иногда нажимает (пропуск рекламы), и хит-тест должен сохраниться
+    'html.__foxnc .__foxctl{opacity:0 !important;}' +
     '.__foxfs_hide{visibility:hidden !important;}';
+  document.documentElement.classList.add('__foxnc');
   (document.head || document.documentElement).appendChild(style);
 
   var ended = false;
@@ -797,6 +810,33 @@ if (!window.__foxplayer) (function(){
     return info;
   }
 
+  // У элементов родной панели нет ни классов, ни id, поэтому опознаём их по месту в кадре:
+  // нижняя полоса, кнопка воспроизведения по центру и выпадающее меню настроек.
+  var CTL = '__foxctl', ctlAt = 0;
+  function markControls() {
+    var r = root(); if (!r) return;
+    var rr = r.getBoundingClientRect();
+    if (rr.width < 2 || rr.height < 2) return;
+    var cx = (rr.left + rr.right) / 2, cy = (rr.top + rr.bottom) / 2;
+    var all = r.querySelectorAll('pjsdiv,div,svg,canvas,center');
+    for (var i = 0; i < all.length; i++) {
+      var e = all[i];
+      if (e.classList.contains(CTL) || (e.querySelector && e.querySelector('video'))) continue;
+      var t = (e.textContent || '').trim();
+      // Рекламный слой не трогаем: если распознать рекламу не удалось и своя кнопка «Skip ad»
+      // не появилась, кнопка сайта остаётся единственным способом пропустить ролик.
+      // Длинный текст — это субтитры, а не подпись контрола
+      if (/^pljsvast/.test(e.id || '') || /Пропустить|Реклама|Skip/i.test(t) || t.length > 40) continue;
+      var b = e.getBoundingClientRect();
+      if (b.width < 2 || b.height < 2) continue;
+      var bar = b.height <= 60 && b.top < rr.bottom && b.bottom > rr.bottom - 60;
+      var play = b.width <= 140 && b.height <= 140 &&
+        Math.abs((b.left + b.right) / 2 - cx) < 70 && Math.abs((b.top + b.bottom) / 2 - cy) < 70;
+      var menu = e.id === 'cdnplayer_settings' || (e.closest && !!e.closest('#cdnplayer_settings'));
+      if (bar || play || menu) e.classList.add(CTL);
+    }
+  }
+
   window.__foxplayer = {
     root: root,
     state: function() {
@@ -811,6 +851,7 @@ if (!window.__foxplayer) (function(){
       var inSeason = cur ? e.filter(function(x) { return (x.getAttribute('data-season') || '1') === season; }) : e;
       // Во время рекламы PlayerJS сообщает состояние серии (на паузе), а играет рекламное видео
       if (anyPlaying()) playing = true;
+      if (Date.now() - ctlAt > 1000) { ctlAt = Date.now(); markControls(); }
       return {
         // Конец серии: по событию PlayerJS или (если хук не сработал) по времени
         player: !!r, playing: !!playing,
@@ -881,6 +922,11 @@ if (!window.__foxplayer) (function(){
       if (i >= 0 && e[i + dir]) { e[i + dir].click(); return; }
       var s = seasons(), j = activeIndex(s);
       if (j >= 0 && s[j + dir]) s[j + dir].click();
+    },
+    // В режиме курсора родной панелью пользуются мышью — там её возвращаем
+    nativeControls: function(on) {
+      document.documentElement.classList.toggle('__foxnc', !on);
+      if (!on) markControls();
     },
     skipTarget: function() {
       var e = adInfo().skipEl; if (!e) return null;
