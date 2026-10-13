@@ -284,6 +284,10 @@
             android:textSize="20sp" />
     </LinearLayout>
 
+    <include
+        android:id="@+id/confirmOverlay"
+        layout="@layout/confirm" />
+
     <!-- Подсказка об управлении при первом запуске: о долгом OK и перемотке узнать больше неоткуда.
          Гасится любой кнопкой пульта и больше не показывается -->
     <LinearLayout

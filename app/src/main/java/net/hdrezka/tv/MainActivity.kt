@@ -24,7 +24,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -40,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var hintOverlay: View
     private lateinit var loadingOverlay: View
     private lateinit var library: LibraryScreen
+    private lateinit var confirm: ConfirmOverlay
     private val posters by lazy { PosterCache(this) }
     private var loadingSince = 0L
     /** Номер загрузки: ответы опроса готовности от прежней страницы отбрасываются. */
@@ -81,9 +81,21 @@ class MainActivity : AppCompatActivity() {
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
         hintOverlay = findViewById(R.id.hintOverlay)
         loadingOverlay = findViewById(R.id.loadingOverlay)
-        library = LibraryScreen(findViewById(R.id.libraryScreen), store, posters) { url, play ->
-            openFromLibrary(url, play)
-        }
+        confirm = ConfirmOverlay(findViewById(R.id.confirmOverlay))
+        library = LibraryScreen(
+            findViewById(R.id.libraryScreen), store, posters,
+            onOpen = { url, play -> openFromLibrary(url, play) },
+            // Долгое OK везде открывает панель, а тут стирало прогресс: спрашиваем
+            onConfirmRemove = { name, remove ->
+                confirm.ask(
+                    getString(R.string.confirm_remove_title),
+                    getString(R.string.confirm_remove_text, name),
+                    getString(R.string.confirm_remove_yes),
+                    getString(R.string.confirm_cancel),
+                    remove,
+                )
+            },
+        )
         // Первый запуск: показываем, какие кнопки что делают, — иначе о долгом OK не узнать
         if (!prefs.getBoolean(KEY_HINT_SHOWN, false)) hintOverlay.visibility = View.VISIBLE
         menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
@@ -234,6 +246,7 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             when {
+                confirm.isOpen -> confirm.close()
                 library.isOpen -> { library.close(); webView.requestFocus() }
                 menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
@@ -330,12 +343,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun offerUpdate(release: UpdateChecker.Release) {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.update_title)
-            .setMessage(getString(R.string.update_text, release.version))
-            .setPositiveButton(R.string.update_action) { _, _ -> startUpdate(release) }
-            .setNegativeButton(R.string.update_later, null)
-            .show()
+        confirm.ask(
+            getString(R.string.update_title),
+            getString(R.string.update_text, release.version),
+            getString(R.string.update_action),
+            getString(R.string.update_later),
+        ) { startUpdate(release) }
     }
 
     /** Скачать APK и отдать системному установщику: подпись совпадает, поэтому встанет поверх. */
@@ -546,8 +559,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Режим стрелок: стрелки выбирают элементы страницы, OK нажимает выбранный (на отпускании). */
     private fun handleSpatialNav(event: KeyEvent): Boolean {
-        // Пока открыта библиотека, кнопками распоряжается она сама (обычный фокус по карточкам)
-        if (library.isOpen || menuPanel.isOpen || errorView.visibility == View.VISIBLE) return false
+        // Пока открыты библиотека или вопрос, кнопками распоряжаются они сами (обычный фокус)
+        if (confirm.isOpen || library.isOpen || menuPanel.isOpen ||
+            errorView.visibility == View.VISIBLE
+        ) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -587,7 +602,7 @@ class MainActivity : AppCompatActivity() {
         }
         val longPress = event.isLongPress || event.repeatCount >= LONG_PRESS_REPEATS
         // В библиотеке долгое OK убирает карточку из списка, панель разделов туда не вмешивается
-        if (library.isOpen) return false
+        if (library.isOpen || confirm.isOpen) return false
         if (event.action == KeyEvent.ACTION_DOWN && longPress && !menuPanel.isOpen && customView == null) {
             swallowOk = true
             openMenu()

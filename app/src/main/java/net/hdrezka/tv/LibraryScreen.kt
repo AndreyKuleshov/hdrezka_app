@@ -21,6 +21,8 @@ class LibraryScreen(
      * с сохранённого места; false — страница сериала, где выбирают серию сами.
      */
     private val onOpen: (url: String, play: Boolean) -> Unit,
+    /** Спросить подтверждение перед удалением карточки из списка. */
+    private val onConfirmRemove: (name: String, remove: () -> Unit) -> Unit,
 ) {
     private val historyRow = root.findViewById<LinearLayout>(R.id.historyRow)
     private val savedRow = root.findViewById<LinearLayout>(R.id.savedRow)
@@ -93,8 +95,11 @@ class LibraryScreen(
         val target = if (fromHistory) last?.url?.ifBlank { show.url } ?: show.url else show.url
         v.setOnClickListener { onOpen(target, fromHistory && last != null) }
         v.setOnLongClickListener {
-            if (fromHistory) store.forget(show.url) else store.toggleFavorite(show.url, show.title, show.poster)
-            build()
+            onConfirmRemove(title.text.toString()) {
+                if (fromHistory) store.forget(show.url)
+                else store.toggleFavorite(show.url, show.title, show.poster)
+                build()
+            }
             true
         }
         row.addView(v)

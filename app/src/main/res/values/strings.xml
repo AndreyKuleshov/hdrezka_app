@@ -4,13 +4,12 @@
     <string name="load_error">Couldn\'t load the page. Press OK to retry.</string>
     <string name="mode_cursor">Mode: arrow cursor</string>
     <string name="mode_dpad">Mode: arrow navigation</string>
-    <string name="menu_title">Sections</string>
+    <string name="menu_title">Fox TV</string>
     <string name="menu_home">Home</string>
     <string name="menu_back">← Back</string>
     <string name="menu_reload">Reload page</string>
-    <string name="menu_cursor_on">Mode: arrow cursor (switch to element navigation)</string>
-    <string name="menu_cursor_off">Mode: element navigation (switch to arrow cursor)</string>
-    <string name="menu_empty">Sections will appear once a site page has loaded</string>
+    <string name="menu_cursor_on">Arrow cursor: on</string>
+    <string name="menu_cursor_off">Arrow cursor: off</string>
     <string name="player_ad">Ad</string>
     <string name="skip_ad">Skip ad</string>
     <string name="skip_in">Skip in %1$d s</string>
@@ -28,6 +27,10 @@
     <string name="library_saved">Saved</string>
     <string name="library_empty">Nothing here yet</string>
     <string name="library_forget">Hold OK to remove</string>
+    <string name="confirm_remove_title">Remove</string>
+    <string name="confirm_remove_text">%1$s will disappear from this list</string>
+    <string name="confirm_remove_yes">Remove</string>
+    <string name="confirm_cancel">Cancel</string>
     <string name="menu_library">Continue watching</string>
     <!-- Подсказка при первом запуске: без неё о долгом OK и перемотке узнать неоткуда -->
     <string name="hint_title">Remote control</string>

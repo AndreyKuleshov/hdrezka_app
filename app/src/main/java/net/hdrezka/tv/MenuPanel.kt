@@ -40,9 +40,6 @@ class MenuPanel(
             items.addView(if (run == null) note(a.title) else item(a.title, 0, run))
         }
         if (actions.isNotEmpty() && sections.isNotEmpty()) items.addView(divider())
-        if (sections.isEmpty()) {
-            items.addView(note(panel.context.getString(R.string.menu_empty)))
-        }
         sections.forEach { s -> items.addView(item(s.title, s.level) { onSection(s) }) }
 
         panel.visibility = View.VISIBLE
