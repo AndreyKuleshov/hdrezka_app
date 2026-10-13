@@ -490,6 +490,9 @@ class PlayerController(
     fun persistProgress() {
         val s = state
         if (!s.hasPlayer || s.adActive || s.duration <= 0 || s.href.isBlank()) return
+        // Открытая страница сериала — ещё не просмотр: плеер отдаёт длительность сразу, и без
+        // этого порога в «Continue watching» попадал каждый сериал, который просто открыли
+        if (s.time < MIN_TRACK_S) return
         lastSaveAt = System.currentTimeMillis()
         store.saveProgress(s.href, s.title, s.poster, s.season, s.episode, s.href, s.time, s.duration)
     }
@@ -657,6 +660,7 @@ class PlayerController(
         private const val SEEK_SYNC_MS = 3000L        // сколько ждём, пока плеер догонит перемотку
         private const val SEEK_SYNC_TOLERANCE_S = 2.0 // ближе этого считаем, что догнал
         private const val SAVE_INTERVAL_MS = 10_000L  // как часто пишем позицию в историю
+        private const val MIN_TRACK_S = 10.0          // короче этого в историю не попадаем
         private const val RESUME_MIN_S = 30.0         // раньше этого возвращаться некуда
         private const val RESUME_TAIL_S = 60.0        // у самого конца серии продолжать нечего
 
