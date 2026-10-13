@@ -37,6 +37,7 @@
     <string name="hint_dismiss">Press any button to continue</string>
     <string name="menu_hint">Remote control help</string>
     <!-- Обновление приложения из GitHub Releases -->
+    <string name="menu_version">Version %1$s</string>
     <string name="menu_update">Check for updates</string>
     <string name="update_checking">Checking for updates…</string>
     <string name="update_none">You have the latest version</string>

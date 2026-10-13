@@ -298,6 +298,8 @@ class MainActivity : AppCompatActivity() {
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
             add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); hintOverlay.visibility = View.VISIBLE })
             add(MenuPanel.Action(getString(R.string.menu_update)) { closeMenu(); checkUpdates(manual = true) })
+            // Справочная строка перед настройкой режима: её не выбрать, она просто сообщает версию
+            add(MenuPanel.Action(getString(R.string.menu_version, BuildConfig.VERSION_NAME)))
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
             add(MenuPanel.Action(getString(modeTitle)) { closeMenu(); toggleCursor() })
         }

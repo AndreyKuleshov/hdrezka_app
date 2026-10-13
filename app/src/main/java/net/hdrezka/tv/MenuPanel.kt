@@ -23,7 +23,8 @@ class MenuPanel(
     private val panel: ScrollView,
     private val items: LinearLayout,
 ) {
-    class Action(val title: String, val run: () -> Unit)
+    /** Пункт панели. Без [run] это просто строка-справка: её не выбрать и не нажать. */
+    class Action(val title: String, val run: (() -> Unit)? = null)
 
     val isOpen get() = panel.visibility == View.VISIBLE
 
@@ -34,7 +35,10 @@ class MenuPanel(
         items.addView(header(panel.context.getString(R.string.menu_title)))
         // Действия приложения — наверху: панель открывается долгим OK как его «пульт», а раньше
         // «Reload page» и смена режима лежали за всеми жанрами сайта, в 37 нажатиях вниз
-        actions.forEach { a -> items.addView(item(a.title, 0, a.run)) }
+        actions.forEach { a ->
+            val run = a.run
+            items.addView(if (run == null) note(a.title) else item(a.title, 0, run))
+        }
         if (actions.isNotEmpty() && sections.isNotEmpty()) items.addView(divider())
         if (sections.isEmpty()) {
             items.addView(note(panel.context.getString(R.string.menu_empty)))
