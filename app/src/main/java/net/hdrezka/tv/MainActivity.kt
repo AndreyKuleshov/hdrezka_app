@@ -108,6 +108,8 @@ class MainActivity : AppCompatActivity() {
         player = PlayerController(webView, cursorLayout, { x, y -> cursorLayout.tapAt(x, y) }, store) {
             // Вернулись из полноэкранного режима на страницу сериала
             webView.requestFocus()
+            // Позиция просмотра изменилась: обновляем подпись «Continue» и галочки просмотренных серий
+            webView.evaluateJavascript(FoxBridge.libraryJs(bridge.currentKey()), null)
         }
 
         with(webView.settings) {
@@ -152,6 +154,10 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 errorView.visibility = View.GONE
+                // Ключ моста — один на документ: новая загрузка получает новый, а повторные
+                // внедрения скрипта на той же странице берут его же. Иначе кнопки, созданные
+                // в прошлый раз, остались бы со старым ключом в замыкании и перестали работать
+                bridge.newKey()
                 player.onPageStarted()
                 loadGeneration++
                 showLoading()
@@ -168,8 +174,8 @@ class MainActivity : AppCompatActivity() {
                     prefs.edit().putString(KEY_LAST_URL, url).apply()
                     collectSections()
                     player.onPageFinished()
-                    // Ключ новый на каждую загрузку и попадает только в наш скрипт
-                    view.evaluateJavascript(FoxBridge.libraryJs(bridge.newKey()), null)
+                    // Ключ выдан в onPageStarted и попадает только в наш скрипт
+                    view.evaluateJavascript(FoxBridge.libraryJs(bridge.currentKey()), null)
                     // Скрипт плеера прячет родную панель сам; в режиме курсора возвращаем её
                     if (cursorLayout.cursorEnabled) player.setNativeControls(true)
                     // Рамка появляется сама, не дожидаясь первой стрелки: иначе страница

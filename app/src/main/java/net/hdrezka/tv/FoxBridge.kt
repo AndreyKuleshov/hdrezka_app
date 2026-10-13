@@ -27,6 +27,12 @@ class FoxBridge(
 
     fun newKey(): String = java.util.UUID.randomUUID().toString().also { key = it }
 
+    /**
+     * Ключ текущей страницы. При повторном внедрении скрипта на той же странице новый ключ выдавать
+     * нельзя: кнопки, созданные в прошлый раз, держат старый в замыкании и перестали бы работать.
+     */
+    fun currentKey(): String = key.ifEmpty { newKey() }
+
     private fun allowed(k: String) = key.isNotEmpty() && k == key
 
     @JavascriptInterface
