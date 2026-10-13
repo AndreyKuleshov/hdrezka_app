@@ -14,6 +14,8 @@ android {
         versionCode = 2
         versionName = "1.1"
         buildConfigField("String", "START_URL", "\"https://serialy-fox-hdrezka.net/\"")
+        // Откуда приложение берёт обновления: публичные GitHub Releases этого репозитория
+        buildConfigField("String", "UPDATE_REPO", "\"AndreyKuleshov/hdrezka_app\"")
     }
 
     buildFeatures { buildConfig = true }

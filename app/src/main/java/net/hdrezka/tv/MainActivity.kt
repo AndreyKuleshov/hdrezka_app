@@ -24,6 +24,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
     private val store by lazy { WatchStore(this) }
+    private val updater by lazy { UpdateChecker(this) }
     private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -235,6 +237,12 @@ class MainActivity : AppCompatActivity() {
             webView.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: BuildConfig.START_URL)
         }
         webView.requestFocus()
+        // Молча смотрим, не вышла ли новая сборка — не чаще раза в сутки
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong(KEY_UPDATE_CHECKED, 0) > UPDATE_INTERVAL_MS) {
+            prefs.edit().putLong(KEY_UPDATE_CHECKED, now).apply()
+            checkUpdates(manual = false)
+        }
     }
 
     private fun navigateBack() {
@@ -284,11 +292,51 @@ class MainActivity : AppCompatActivity() {
             if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
             add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); hintOverlay.visibility = View.VISIBLE })
+            add(MenuPanel.Action(getString(R.string.menu_update)) { closeMenu(); checkUpdates(manual = true) })
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
             add(MenuPanel.Action(getString(modeTitle)) { closeMenu(); toggleCursor() })
         }
         menuPanel.open(list, { closeMenu(); webView.loadUrl(it.url) }, actions)
     }
+
+    /**
+     * Проверить, не вышла ли новая сборка. [manual] — проверку запросили из панели,
+     * тогда сообщаем и когда обновления нет; фоновую проверку молчим, чтобы не мешать.
+     */
+    private fun checkUpdates(manual: Boolean) {
+        if (manual) toast(R.string.update_checking)
+        updater.check { release ->
+            when {
+                isFinishing || isDestroyed -> Unit
+                release != null -> offerUpdate(release)
+                manual -> toast(R.string.update_none)
+            }
+        }
+    }
+
+    private fun offerUpdate(release: UpdateChecker.Release) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.update_title)
+            .setMessage(getString(R.string.update_text, release.version))
+            .setPositiveButton(R.string.update_action) { _, _ -> startUpdate(release) }
+            .setNegativeButton(R.string.update_later, null)
+            .show()
+    }
+
+    /** Скачать APK и отдать системному установщику: подпись совпадает, поэтому встанет поверх. */
+    private fun startUpdate(release: UpdateChecker.Release) {
+        toast(R.string.update_downloading)
+        updater.download(release) { file ->
+            when {
+                isFinishing || isDestroyed -> Unit
+                file == null -> toast(R.string.update_download_failed)
+                // false — не хватает разрешения, нужный экран настроек уже открыт
+                !updater.install(file) -> toast(R.string.update_permission)
+            }
+        }
+    }
+
+    private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
 
     /**
      * Открыть из библиотеки. Недосмотренная серия ([play]) запускается сразу с сохранённого места,
@@ -570,6 +618,8 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"
         private const val KEY_HINT_SHOWN = "hint_shown"
+        private const val KEY_UPDATE_CHECKED = "update_checked"
+        private const val UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000L // раз в сутки
         private const val LOADING_POLL_MS = 120L
         private const val LOADING_TIMEOUT_MS = 6000L
         private const val AUTOPLAY_TIMEOUT_MS = 15_000L // столько же ждёт автозапуск в PLAYER_JS

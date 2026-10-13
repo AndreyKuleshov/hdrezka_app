@@ -64,6 +64,9 @@ FOXTV_DEBUG_RELEASE_KEY=1 ./gradlew assembleDebug   # debug (отладка WebV
 
 - Коммиты от `Andrey Kuleshov <greenolls180885@yandex.ru>`, пушить в `main`; CI (`.github/workflows/build.yml`) собирает APK.
 - Релиз: поднять `versionCode`/`versionName` в `app/build.gradle.kts`, тег `vX.Y` → GitHub Release с `FoxTV-vX.Y.apk`.
+  Этот же релиз приложение предлагает себе в обновление (`UpdateChecker`, репозиторий публичный — токен не нужен):
+  молча проверяет раз в сутки и по пункту «Check for updates» в панели. Ставится системным установщиком через
+  `FileProvider`, поэтому APK должен быть подписан постоянным ключом — debug поверх release не встанет.
 - Интерфейс приложения — на английском; комментарии в коде и README — на русском.
 - minSdk 21: не использовать атрибуты только с API 26 (`paddingHorizontal`, `layout_marginHorizontal` и т.п.).
 - Не извлекать прямые ссылки на видеопотоки и не делать свой плеер в обход сайта — только управление плеером сайта.
