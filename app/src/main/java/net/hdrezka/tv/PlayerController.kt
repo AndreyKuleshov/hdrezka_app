@@ -300,7 +300,8 @@ class PlayerController(
             nextCard.visibility == View.VISIBLE -> { hideNextCard(); showControls() }
             qualityMenu.visibility == View.VISIBLE -> { closeQualityMenu(); btnQuality.requestFocusFromTouch() }
             scrubbing -> { stopScrub(commit = false); btnPlay.requestFocusFromTouch(); render() }
-            mode == Mode.FULLSCREEN -> showControls()
+            // Панель открыта — «Назад» убирает её; при убранной панели уходим на страницу
+            mode == Mode.CONTROLS -> hideControls()
             else -> exitToPage()
         }
         return true
