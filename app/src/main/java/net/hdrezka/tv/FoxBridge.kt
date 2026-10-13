@@ -93,6 +93,9 @@ class FoxBridge(
       '.' + BAR + ' i{display:block;height:100%;background:#FF6A00;}' +
       '.' + EYE + '{display:inline-flex;align-items:center;justify-content:center;width:60px;height:60px;' +
       'padding:0;border:0;background:transparent;color:#fff;cursor:pointer;}' +
+      // Сайт красит любую кнопку при наведении (button:hover), а WebView оставляет наведение
+      // после имитации касания — глаз застревал зелёным. Селектор с псевдоклассом перебивает
+      '.' + EYE + ':hover,.' + EYE + ':focus{background:transparent;}' +
       '.' + EYE + '[data-has="1"]{color:#FF6A00;}';
     (document.head || document.documentElement).appendChild(st);
   }
