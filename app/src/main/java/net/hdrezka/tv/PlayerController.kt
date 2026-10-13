@@ -7,7 +7,9 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import org.json.JSONObject
+import kotlin.math.abs
 
 /**
  * Обёртка над плеером сайта (PlayerJS): своё полноэкранное воспроизведение
@@ -21,6 +23,8 @@ class PlayerController(
     private val webView: WebView,
     root: View,
     private val tap: (x: Float, y: Float) -> Unit,
+    /** История просмотра: куда писать позицию и откуда её брать при возврате. */
+    private val store: WatchStore,
     /** Вернулись на страницу — отдать фокус навигации по странице. */
     private val onExitToPage: () -> Unit,
 ) {
@@ -44,6 +48,9 @@ class PlayerController(
         val count: Int = 0,
         val hasPrev: Boolean = false,
         val hasNext: Boolean = false,
+        /** Обложка и адрес страницы — для истории просмотра. */
+        val poster: String = "",
+        val href: String = "",
     )
 
     var mode = Mode.PAGE
@@ -92,6 +99,11 @@ class PlayerController(
     private var scrubPos = 0.0
     private var scrubDirty = false
     private var lastScrubStep = 0L
+    private var seekAt = 0L // когда отправили перемотку: до неё плеер ещё отдаёт прежнее время
+
+    /** История просмотра: когда последний раз записали позицию и перематывали ли к ней. */
+    private var lastSaveAt = 0L
+    private var resumeDone = false
 
     /** Открыт полноэкранный режим самого сайта (onShowCustomView) — обёртка не вмешивается. */
     var externalFullscreen = false
@@ -139,6 +151,7 @@ class PlayerController(
     fun onPageStarted() {
         stopPolling()
         generation++
+        resumeDone = false // новая страница — снова можно вернуться к сохранённому месту
         resetTransient()
         if (mode != Mode.PAGE) setMode(Mode.PAGE, notify = false)
         state = State()
@@ -150,6 +163,7 @@ class PlayerController(
 
     /** Приложение ушло в фон: пауза, без автоперехода и автоскрытия. */
     fun onBackground() {
+        persistProgress() // уходим в фон на середине серии — место должно сохраниться
         stopPolling()
         resetTransient()
         if (mode != Mode.PAGE) js("pause()")
@@ -197,6 +211,11 @@ class PlayerController(
     }
 
     /** dir = 1 — следующая серия, -1 — предыдущая. false — переключать некуда. */
+    /** Открыли серию из библиотеки: запустить её, как только загрузится страница. */
+    fun playOnNextPage() {
+        resumeRequested = true
+    }
+
     fun episode(dir: Int): Boolean {
         val s = state
         if (s.adActive || (dir > 0 && !s.hasNext) || (dir < 0 && !s.hasPrev)) return false
@@ -287,8 +306,15 @@ class PlayerController(
 
     private fun stopScrub(commit: Boolean) {
         if (!scrubbing) return
-        if (commit && scrubDirty) js("seekTo(${scrubPos.toLong()})")
+        if (commit && scrubDirty) commitSeek()
         scrubbing = false
+        scrubDirty = false
+    }
+
+    /** Отправить выбранную позицию плееру, запомнив момент: пока он догоняет, показываем её же. */
+    private fun commitSeek() {
+        seekAt = System.currentTimeMillis()
+        js("seekTo(${scrubPos.toLong()})")
         scrubDirty = false
     }
 
@@ -307,8 +333,7 @@ class PlayerController(
                     }
                 } else if (scrubDirty) {
                     // Отпустили стрелку — перематываем, точка остаётся на полосе
-                    js("seekTo(${scrubPos.toLong()})")
-                    scrubDirty = false
+                    commitSeek()
                 }
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> if (down && event.repeatCount == 0) {
@@ -317,7 +342,7 @@ class PlayerController(
                 scheduleAutoHide()
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                if (!down && scrubDirty) { js("seekTo(${scrubPos.toLong()})"); scrubDirty = false }
+                if (!down && scrubDirty) commitSeek()
         }
         return true
     }
@@ -409,6 +434,38 @@ class PlayerController(
         if (isFullscreen && s.canSkip && !prev.canSkip) showControls(btnSkip)
         // Конец серии — отсчёт до следующей
         if (isFullscreen && s.ended && !prev.ended && s.hasNext) showNextCard()
+        trackHistory(prev, s)
+    }
+
+    /**
+     * История просмотра: вернуть на сохранённое место при первом запуске серии,
+     * дальше писать позицию не чаще раза в [SAVE_INTERVAL_MS], а конец серии отмечать просмотренным.
+     */
+    private fun trackHistory(prev: State, s: State) {
+        val playingEpisode = s.hasPlayer && s.playing && !s.adActive && s.duration > 0
+        if (playingEpisode && !resumeDone) {
+            resumeDone = true
+            val saved = store.positionOf(s.href)
+            // К самому началу и к концу не возвращаем: там продолжать нечего
+            if (saved > RESUME_MIN_S && saved < s.duration - RESUME_TAIL_S) {
+                scrubPos = saved
+                commitSeek()
+                val ctx = title.context
+                Toast.makeText(ctx, ctx.getString(R.string.resume_from, fmt(saved)), Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (playingEpisode && s.time > 1 && System.currentTimeMillis() - lastSaveAt > SAVE_INTERVAL_MS) {
+            persistProgress()
+        }
+        if (s.ended && !prev.ended && s.href.isNotBlank()) store.markSeen(s.href, s.season, s.episode)
+    }
+
+    /** Записать текущую позицию в историю (по ходу просмотра, при паузе и уходе в фон). */
+    fun persistProgress() {
+        val s = state
+        if (!s.hasPlayer || s.adActive || s.duration <= 0 || s.href.isBlank()) return
+        lastSaveAt = System.currentTimeMillis()
+        store.saveProgress(s.href, s.title, s.poster, s.season, s.episode, s.href, s.time, s.duration)
     }
 
     private fun render() {
@@ -421,7 +478,12 @@ class PlayerController(
         adBadge.text = s.adLabel.replace("Реклама", ctx.getString(R.string.player_ad)).ifBlank { ctx.getString(R.string.player_ad) }
 
         if (scrubbing && (s.adActive || s.duration <= 0)) stopScrub(commit = false)
-        val shownTime = if (scrubbing) scrubPos else s.time
+        // На полосе показываем выбранную позицию, только пока её двигают стрелками или пока плеер
+        // догоняет свежую перемотку. Если просто стоять на полосе, время серии идёт как обычно —
+        // раньше оно замирало на моменте входа в режим перемотки.
+        val awaitingSeek = System.currentTimeMillis() - seekAt < SEEK_SYNC_MS &&
+            abs(s.time - scrubPos) > SEEK_SYNC_TOLERANCE_S
+        val shownTime = if (scrubbing && (scrubDirty || awaitingSeek)) scrubPos else s.time
         timeLabel.text = fmt(shownTime)
         durationLabel.text = fmt(s.duration)
         progress.progress = if (s.duration > 0) (shownTime / s.duration * 1000).toInt() else 0
@@ -554,6 +616,8 @@ class PlayerController(
                 count = o.optInt("count"),
                 hasPrev = o.optBoolean("prev"),
                 hasNext = o.optBoolean("next"),
+                poster = o.optString("poster"),
+                href = o.optString("href"),
             )
         } catch (e: Exception) {
             null
@@ -567,6 +631,11 @@ class PlayerController(
         private const val RESUME_TIMEOUT_MS = 15_000L
         private const val SCRUB_STEP_S = 60.0
         private const val SCRUB_REPEAT_MS = 150L
+        private const val SEEK_SYNC_MS = 3000L        // сколько ждём, пока плеер догонит перемотку
+        private const val SEEK_SYNC_TOLERANCE_S = 2.0 // ближе этого считаем, что догнал
+        private const val SAVE_INTERVAL_MS = 10_000L  // как часто пишем позицию в историю
+        private const val RESUME_MIN_S = 30.0         // раньше этого возвращаться некуда
+        private const val RESUME_TAIL_S = 60.0        // у самого конца серии продолжать нечего
 
         /**
          * Подстройка страниц сайта под TV: скрыть «Поделиться»; на странице сериала плеер с сериями —
@@ -576,12 +645,23 @@ class PlayerController(
          */
         private const val REORDER_JS = """
 (function(){
-  // Блок «Поделиться с друзьями» на TV не нужен
+  // Блок «Поделиться с друзьями» на TV не нужен; тумблер сайта «Автопереключение серий»
+  // предлагает то же, что карточка «Next episode» приложения (две системы в одном кадре);
+  // подвал с копирайтами и служебными ссылками с пульта всё равно недоступен — его ссылки
+  // исключены из обхода стрелками, и в конце прокрутки он только мелькал пустой полосой
   if (!document.getElementById('__foxhide')) {
     var hide = document.createElement('style');
     hide.id = '__foxhide';
-    hide.textContent = '.share-btns{display:none !important;}';
+    hide.textContent = '.share-btns,.autoswitch,footer,.footer{display:none !important;}';
     (document.head || document.documentElement).appendChild(hide);
+  }
+  // Порядок блоков под TV: озвучка → сезон → серия → плеер. Список серий сайт кладёт ПОД плеер,
+  // и с пульта до него приходилось идти через сам плеер; теперь выбор идёт сверху вниз подряд.
+  var box = document.querySelector('.full_player');
+  var eps = box && box.querySelector('.episodes_list');
+  var frame = box && box.querySelector('.video-responsive');
+  if (eps && frame && (frame.compareDocumentPosition(eps) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+    box.insertBefore(eps, frame);
   }
   var grid = document.querySelector('.full_grid'), player = document.querySelector('.full_player');
   if (!grid || !player || grid.getAttribute('data-fox-reordered')) return;
@@ -618,6 +698,9 @@ if (!window.__foxplayer) (function(){
     'margin:0 !important;padding:0 !important;z-index:2147483646 !important;background:#000 !important;transform:none !important;}' +
     '.__foxfs video{width:100% !important;height:100% !important;object-fit:contain !important;}' +
     'html.__foxfs_on,html.__foxfs_on body{overflow:hidden !important;}' +
+    // Надпись сайта «Реклама 1/2» гасим только визуально: по ней же определяется состояние
+    // рекламы, а в кадре она дублировала собственную метку приложения на другом языке
+    '.__foxfs .__foxadlabel{opacity:0 !important;}' +
     '.__foxfs_hide{visibility:hidden !important;}';
   (document.head || document.documentElement).appendChild(style);
 
@@ -672,8 +755,16 @@ if (!window.__foxplayer) (function(){
       if (e.children.length > 0 || !shown(e)) continue;
       var t = (e.textContent || '').replace(/\s+/g, ' ').trim();
       var m;
-      if (/^Реклама(\s|$)/i.test(t)) /* \b не работает с кириллицей */ { info.ad = true; info.label = t; }
-      else if ((m = /^Пропустить через (\d+)/i.exec(t))) { info.ad = true; info.skipIn = +m[1]; }
+      if (/^Реклама(\s|$)/i.test(t)) /* \b не работает с кириллицей */ {
+        info.ad = true; info.label = t;
+        e.classList.add('__foxadlabel'); // свою метку показываем вместо этой, а не рядом
+      }
+      else if ((m = /^Пропустить через (\d+)/i.exec(t))) {
+        info.ad = true; info.skipIn = +m[1];
+        // «Пропустить через 0» — пропуск уже доступен, но отдельной надписи «Пропустить»
+        // сайт показать не успевает; нажимать можно по самому счётчику
+        if (info.skipIn === 0 && !info.skipEl) info.skipEl = e;
+      }
       else if (/^(Пропустить( рекламу)?|Skip( ad)?)$/i.test(t)) { info.ad = true; info.skipEl = e; }
     }
     return info;
@@ -687,6 +778,10 @@ if (!window.__foxplayer) (function(){
       var playing = api('playing'), time = api('time'), dur = api('duration');
       if (playing === undefined && v) { playing = !v.paused; time = v.currentTime; dur = v.duration; }
       var ad = adInfo(), q = api('qualities'), cur = e[i] || e[0], h = document.querySelector('h1');
+      // В DOM лежат серии всех сезонов, включая скрытые, — «Серия 1 из 45» вместо «из 15».
+      // Считаем только серии текущего сезона.
+      var season = cur ? (cur.getAttribute('data-season') || '1') : '';
+      var inSeason = cur ? e.filter(function(x) { return (x.getAttribute('data-season') || '1') === season; }) : e;
       // Во время рекламы PlayerJS сообщает состояние серии (на паузе), а играет рекламное видео
       if (anyPlaying()) playing = true;
       return {
@@ -697,11 +792,17 @@ if (!window.__foxplayer) (function(){
         ad: ad.ad, adLabel: ad.label, skipIn: ad.skipIn, canSkip: !!ad.skipEl,
         quality: api('quality') || '', qualities: Array.isArray(q) ? q : [],
         title: h ? h.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : document.title,
-        count: e.length,
-        season: cur ? (cur.getAttribute('data-season') || '1') : '',
+        count: inSeason.length,
+        season: season,
         episode: i >= 0 ? cur.getAttribute('data-episode') : '—',
         prev: i > 0 || j > 0,
-        next: (i >= 0 && i < e.length - 1) || (j >= 0 && j < s.length - 1)
+        next: (i >= 0 && i < e.length - 1) || (j >= 0 && j < s.length - 1),
+        // Для истории просмотра: обложка сериала и адрес текущей страницы
+        poster: (function(){
+          var im = document.querySelector('.full_content-poster img');
+          return im ? (im.currentSrc || im.src || '') : '';
+        })(),
+        href: location.href
       };
     },
     play: function() { if (pj()) api('play'); else { var v = video(); if (v) v.play(); } },
@@ -761,6 +862,32 @@ if (!window.__foxplayer) (function(){
       return { x: ((r.left + r.right) / 2 - ox) * k, y: ((r.top + r.bottom) / 2 - oy) * k };
     }
   };
+
+  // Каждая серия — отдельный URL, поэтому её выбор неизбежно перезагружает страницу.
+  // Запоминаем намерение и после перехода запускаем воспроизведение сами, иначе пришлось бы
+  // заново нажимать «Смотреть онлайн». На весь экран обёртка уйдёт сама, как пойдёт видео.
+  var AUTOPLAY = '__foxautoplay';
+  document.addEventListener('click', function(ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('.episodes_list a[data-episode]') : null;
+    if (a) try { sessionStorage.setItem(AUTOPLAY, '1'); } catch (e) {}
+  }, true);
+  (function(){
+    var want = false;
+    try { want = sessionStorage.getItem(AUTOPLAY) === '1'; } catch (e) {}
+    if (!want) return;
+    // Флаг снимаем не сразу, а когда серия пошла: пока он стоит, обёртка держит заставку
+    // загрузки. Иначе страница успевает показаться постером, и только потом открывается плеер.
+    function done() {
+      try { sessionStorage.removeItem(AUTOPLAY); } catch (e) {}
+    }
+    var tries = 0;
+    var timer = setInterval(function() {
+      if (++tries > 60) { clearInterval(timer); done(); return; } // не ждём дольше ~15 с
+      if (!pj() && !video()) return;
+      window.__foxplayer.play(); // повторяем, пока плеер не подхватит
+      if (anyPlaying() || api('playing')) { clearInterval(timer); done(); }
+    }, 250);
+  })();
 })()
 """
     }
