@@ -142,11 +142,13 @@ if (!window.__foxnav) (function(){
 
   // Кликабельные элементы: по селектору или с курсором-«рукой» (самодельные виджеты).
   // Из вложенных оставляем внешний, если он не огромный контейнер.
-  function candidates(scope) {
-    var root = scope || document.body;
+  // Обход всего документа — самая дорогая часть: на каталоге это тысячи элементов
+  // с getComputedStyle. Набор меняется редко, поэтому держим его до правки страницы,
+  // а видимость и положение всё равно считаем заново на каждое нажатие.
+  var rawCache = null, rawTimer = null;
+  function rawSet(root) {
     var all = root ? root.getElementsByTagName('*') : [];
-    var vpArea = innerWidth * innerHeight, set = new Set(), out = [];
-    var overlapRisk = visiblePopups().length > 0;
+    var set = new Set();
     for (var i = 0; i < all.length; i++) {
       var e = all[i];
       // Сначала дешёвый matches, потом skipped с подъёмом по дереву: обратный порядок
@@ -154,6 +156,30 @@ if (!window.__foxnav) (function(){
       if (!(e.matches(SEL) || (pointer(e) && !(e.parentElement && pointer(e.parentElement))))) continue;
       if (skipped(e)) continue;
       set.add(e);
+    }
+    return set;
+  }
+  function dropCache() {
+    clearTimeout(rawTimer);
+    rawTimer = setTimeout(function() { rawCache = null; }, 200);
+  }
+  try {
+    // Следим только за появлением и исчезновением узлов: классы рамки меняем сами,
+    // и реагировать на них значило бы сбрасывать кэш на каждом шаге
+    new MutationObserver(dropCache).observe(document.documentElement, { childList: true, subtree: true });
+    addEventListener('resize', function() { rawCache = null; });
+  } catch (e) {}
+
+  function candidates(scope) {
+    var root = scope || document.body;
+    var vpArea = innerWidth * innerHeight, out = [];
+    var overlapRisk = visiblePopups().length > 0;
+    var set;
+    if (scope) {
+      set = rawSet(root);
+    } else {
+      if (!rawCache) rawCache = rawSet(root);
+      set = rawCache;
     }
     // Плеер — одна точка навигации; его внутренние элементы не обходим (ими управляет панель плеера)
     var player = window.__foxplayer && window.__foxplayer.root();

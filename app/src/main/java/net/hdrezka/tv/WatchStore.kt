@@ -41,10 +41,10 @@ class WatchStore(context: Context) {
     // --- Чтение ---
 
     /** Недосмотренные и недавние сериалы, свежие сверху. */
-    fun history(): List<Show> = read(KEY_HISTORY).sortedByDescending { it.at }
+    fun history(): List<Show> = read(KEY_HISTORY) // порядок задаётся при записи
 
     /** Отложенные «на потом», свежие сверху. */
-    fun favorites(): List<Show> = read(KEY_FAVORITES).sortedByDescending { it.at }
+    fun favorites(): List<Show> = read(KEY_FAVORITES)
 
     fun isFavorite(showUrl: String): Boolean =
         read(KEY_FAVORITES).any { it.url == canonical(showUrl) }
@@ -133,12 +133,19 @@ class WatchStore(context: Context) {
 
     // --- Хранение ---
 
-    // Мост вызывается из потока WebView, плеер и экран — из UI: без синхронизации
-    // одновременные правки списка затирали бы друг друга
+    /**
+     * Списки держим в памяти: позиция пишется раз в 10 секунд, и каждый раз заново
+     * разбирать и собирать весь JSON — лишняя работа в главном потоке.
+     * Мост вызывается из потока WebView, плеер и экран — из UI, поэтому всё под замком.
+     */
+    private val cache = HashMap<String, List<Show>>()
+    private val dirty = HashSet<String>()
+    private var lastSaveAt = 0L
+
     @Synchronized
-    private fun read(key: String): List<Show> {
-        val raw = prefs.getString(key, null) ?: return emptyList()
-        return try {
+    private fun read(key: String): List<Show> = cache.getOrPut(key) {
+        val raw = prefs.getString(key, null) ?: return@getOrPut emptyList()
+        try {
             val arr = JSONArray(raw)
             (0 until arr.length()).mapNotNull { i -> parse(arr.optJSONObject(i)) }
         } catch (e: Exception) {
@@ -146,23 +153,45 @@ class WatchStore(context: Context) {
         }
     }
 
+    /**
+     * Изменения живут в памяти, на диск уходят не чаще раза в [SAVE_INTERVAL_MS].
+     * За 45-минутную серию это 5 записей вместо ~270 — меньше износ флеш-памяти приставки
+     * и нет очереди, которой `onPause` дожидается перед выходом.
+     */
     @Synchronized
     private fun write(key: String, list: List<Show>, limit: Int) {
-        val kept = list.sortedByDescending { it.at }.take(limit)
-        val arr = JSONArray()
-        kept.forEach { s ->
-            val o = JSONObject()
-                .put("u", s.url).put("t", s.title).put("p", s.poster).put("at", s.at)
-            s.last?.let { e ->
-                o.put(
-                    "ep", JSONObject().put("s", e.season).put("e", e.episode)
-                        .put("url", e.url).put("pos", e.pos).put("dur", e.dur)
-                )
+        cache[key] = list.sortedByDescending { it.at }.take(limit)
+        dirty += key
+        val now = System.currentTimeMillis()
+        if (now - lastSaveAt >= SAVE_INTERVAL_MS) persist()
+    }
+
+    /** Сбросить накопленное на диск: при уходе в фон и закрытии приложения. */
+    @Synchronized
+    fun flush() = persist()
+
+    private fun persist() {
+        if (dirty.isEmpty()) return
+        lastSaveAt = System.currentTimeMillis()
+        val edit = prefs.edit()
+        dirty.forEach { key ->
+            val arr = JSONArray()
+            cache[key].orEmpty().forEach { s ->
+                val o = JSONObject()
+                    .put("u", s.url).put("t", s.title).put("p", s.poster).put("at", s.at)
+                s.last?.let { e ->
+                    o.put(
+                        "ep", JSONObject().put("s", e.season).put("e", e.episode)
+                            .put("url", e.url).put("pos", e.pos).put("dur", e.dur)
+                    )
+                }
+                if (s.seen.isNotEmpty()) o.put("seen", JSONArray(s.seen.toList()))
+                arr.put(o)
             }
-            if (s.seen.isNotEmpty()) o.put("seen", JSONArray(s.seen.toList()))
-            arr.put(o)
+            edit.putString(key, arr.toString())
         }
-        prefs.edit().putString(key, arr.toString()).apply()
+        dirty.clear()
+        edit.apply()
     }
 
     private fun parse(o: JSONObject?): Show? {
@@ -187,6 +216,7 @@ class WatchStore(context: Context) {
         private const val KEY_FAVORITES = "favorites"
         private const val MAX_HISTORY = 50
         private const val MAX_FAVORITES = 100
+        private const val SAVE_INTERVAL_MS = 60_000L // чаще раза в минуту на диск не ходим
         private const val SEEN_FRACTION = 0.9 // дальше этого считаем серию просмотренной
 
         /**

@@ -115,8 +115,20 @@ class PlayerController(
         override fun run() {
             if (!polling) return
             refresh()
-            webView.postDelayed(this, POLL_MS)
+            webView.postDelayed(this, pollDelay())
         }
+    }
+
+    /**
+     * Частота опроса по надобности: часы и полоса тикают только в контролах, в остальном
+     * достаточно ловить начало рекламы и конец серии. Там, где плеера нет вовсе
+     * (каталог, поиск), заглядываем совсем редко — ждём только запуска просмотра.
+     */
+    private fun pollDelay(): Long = when {
+        mode == Mode.CONTROLS -> POLL_MS
+        mode != Mode.PAGE -> POLL_FULLSCREEN_MS
+        state.hasPlayer -> POLL_PAGE_MS
+        else -> POLL_IDLE_MS
     }
     private val autoHide = Runnable { if (!released && mode == Mode.CONTROLS && canAutoHide()) hideControls() }
     private val tick = object : Runnable {
@@ -163,6 +175,7 @@ class PlayerController(
     /** Приложение ушло в фон: пауза, без автоперехода и автоскрытия. */
     fun onBackground() {
         persistProgress() // уходим в фон на середине серии — место должно сохраниться
+        store.flush()     // и сразу на диск: приложение могут не вернуть
         stopPolling()
         resetTransient()
         if (mode != Mode.PAGE) js("pause()")
@@ -171,6 +184,7 @@ class PlayerController(
     /** Перед уничтожением WebView: снять все отложенные задачи, пока view ещё прикреплён. */
     fun release() {
         released = true
+        store.flush()
         stopPolling()
         resetTransient()
     }
@@ -631,7 +645,10 @@ class PlayerController(
     }
 
     companion object {
-        private const val POLL_MS = 500L
+        private const val POLL_MS = 500L            // контролы: тикают часы и полоса
+        private const val POLL_FULLSCREEN_MS = 1000L // видео без контролов
+        private const val POLL_PAGE_MS = 1500L       // страница с плеером: ждём запуска
+        private const val POLL_IDLE_MS = 3000L       // плеера на странице нет вовсе
         private const val AUTO_HIDE_MS = 5000L
         private const val NEXT_COUNTDOWN = 10
         private const val RESUME_TIMEOUT_MS = 15_000L
