@@ -32,8 +32,13 @@ set -a && source ~/Documents/FoxTV-signing-key/signing.env && set +a   # пос�
 FOXTV_DEBUG_RELEASE_KEY=1 ./gradlew assembleDebug   # debug (отладка WebView) поверх release, cookies сохраняются
 ```
 
-- Ключ подписи: `~/Documents/FoxTV-signing-key/` (`release.jks`, `signing.env`). Не коммитить, не выводить пароль.
-  В CI ключ берётся из GitHub Secrets; релиз по тегу без ключа намеренно падает.
+- Ключ подписи: `~/Documents/FoxTV-signing-key/` — это ссылка на папку в iCloud Drive
+  (`~/Library/Mobile Documents/com~apple~CloudDocs/FoxTV-signing-key/`), внутри `release.jks` и `signing.env`.
+  Не коммитить, не выводить пароль. В CI ключ берётся из GitHub Secrets (`SIGNING_*`), но прочитать их обратно
+  нельзя — Secrets только на запись, поэтому восстановимая копия ключа существует лишь в iCloud.
+  Релиз по тегу без ключа намеренно падает.
+- Ключ сменён 13.10.2026: прежний пропал вместе с локальной папкой. Версии по 1.7 включительно подписаны старым
+  ключом, обновление поверх них не встанет — на устройстве нужна переустановка (данные библиотеки при этом теряются).
 - `local.properties` (`sdk.dir=…`) не в git — создать локально.
 
 ## Проверка
