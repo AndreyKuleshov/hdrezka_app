@@ -20,12 +20,19 @@ import java.util.concurrent.Executors
  * и APK оттуда подписан тем же постоянным ключом — поэтому встаёт поверх установленной версии.
  * Репозиторий публичный, так что токен не нужен.
  */
-class UpdateChecker(private val context: Context) {
+class UpdateChecker(context: Context) {
+
+    // Держим контекст приложения: поток загрузки живёт дольше экрана
+    private val context = context.applicationContext
 
     /** Доступная версия и ссылка на её APK. */
     data class Release(val version: String, val apkUrl: String)
 
     private val io = Executors.newSingleThreadExecutor()
+
+    fun shutdown() {
+        io.shutdownNow()
+    }
     private val ui = Handler(Looper.getMainLooper())
 
     /** Спросить GitHub о последнем релизе. [onResult] получает null, если обновления нет. */
@@ -101,7 +108,9 @@ class UpdateChecker(private val context: Context) {
         for (i in 0 until assets.length()) {
             val a = assets.optJSONObject(i) ?: continue
             if (a.optString("name").endsWith(".apk", ignoreCase = true)) {
-                return Release(tag, a.optString("browser_download_url"))
+                val url = a.optString("browser_download_url")
+                // Качаем только с GitHub и только по HTTPS, даже если JSON говорит иное
+                return if (trusted(url)) Release(tag, url) else null
             }
         }
         return null
@@ -110,11 +119,21 @@ class UpdateChecker(private val context: Context) {
     private fun fetchApk(release: Release): File {
         val dir = File(context.filesDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() } // прошлые загрузки не копим
-        val file = File(dir, "FoxTV-v${release.version}.apk")
+        // Имя собираем из цифр версии: тег приходит извне, а в имени файла не должно быть путей
+        val safe = release.version.filter { it.isDigit() || it == '.' }.ifBlank { "update" }
+        val file = File(dir, "FoxTV-v$safe.apk")
         open(release.apkUrl).inputStream.use { input ->
             file.outputStream().use { output -> input.copyTo(output) }
         }
         return file
+    }
+
+    /** Адрес ведёт на GitHub по HTTPS. */
+    private fun trusted(url: String): Boolean {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return false
+        return uri.scheme == "https" &&
+            (host == "github.com" || host.endsWith(".github.com") || host.endsWith(".githubusercontent.com"))
     }
 
     private fun open(url: String): HttpURLConnection =

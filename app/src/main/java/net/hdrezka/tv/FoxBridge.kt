@@ -17,27 +17,45 @@ class FoxBridge(
     private val onOpenMenu: () -> Unit,
 ) {
 
-    @JavascriptInterface
-    fun openLibrary() = onOpenLibrary()
+    /**
+     * `@JavascriptInterface` виден всем скриптам страницы и всем её фреймам, включая рекламные.
+     * Поэтому каждый вызов подтверждается ключом: он подставляется прямо в текст [LIBRARY_JS]
+     * и остаётся внутри его замыкания, так что чужому скрипту его неоткуда взять.
+     * Ключ новый на каждую загрузку страницы.
+     */
+    private var key = ""
+
+    fun newKey(): String = java.util.UUID.randomUUID().toString().also { key = it }
+
+    private fun allowed(k: String) = key.isNotEmpty() && k == key
 
     @JavascriptInterface
-    fun openMenu() = onOpenMenu()
+    fun openLibrary(k: String) {
+        if (allowed(k)) onOpenLibrary()
+    }
 
     @JavascriptInterface
-    fun isFavorite(url: String): Boolean = store.isFavorite(url)
+    fun openMenu(k: String) {
+        if (allowed(k)) onOpenMenu()
+    }
+
+    @JavascriptInterface
+    fun isFavorite(k: String, url: String): Boolean = allowed(k) && store.isFavorite(url)
 
     /** Отложить или убрать из отложенных; возвращает новое состояние для перерисовки кнопки. */
     @JavascriptInterface
-    fun toggleFavorite(url: String, title: String, poster: String): Boolean =
-        store.toggleFavorite(url, title, poster)
+    fun toggleFavorite(k: String, url: String, title: String, poster: String): Boolean =
+        allowed(k) && store.toggleFavorite(url, title, poster)
 
     /** Просмотренные серии текущего сериала: массив «сезон:серия». */
     @JavascriptInterface
-    fun seenEpisodes(url: String): String = JSONArray(store.seenEpisodes(url).toList()).toString()
+    fun seenEpisodes(k: String, url: String): String =
+        if (!allowed(k)) "[]" else JSONArray(store.seenEpisodes(url).toList()).toString()
 
     /** Прогресс по сериалам: адрес → доля просмотра, для полосок на карточках каталога. */
     @JavascriptInterface
-    fun progressMap(): String {
+    fun progressMap(k: String): String {
+        if (!allowed(k)) return "{}"
         val o = JSONObject()
         store.progressByShow().forEach { (url, fraction) -> o.put(url, fraction.toDouble()) }
         return o.toString()
@@ -45,6 +63,9 @@ class FoxBridge(
 
     companion object {
         const val NAME = "FoxApp"
+
+        /** Скрипт с подставленным ключом — внедряется только на страницы самого сайта. */
+        fun libraryJs(key: String): String = LIBRARY_JS.replace("__FOX_KEY__", key)
 
         /**
          * Рисует на страницах сайта то, что знает приложение: кнопку «отложить» на странице
@@ -54,6 +75,8 @@ class FoxBridge(
         const val LIBRARY_JS = """
 (function(){
   if (!window.FoxApp) return;
+  // Ключ подставляется приложением при внедрении и дальше живёт только здесь
+  var K = '__FOX_KEY__';
   var FAV = '__foxfav', MARK = '__foxseen', BAR = '__foxbar', EYE = '__foxeye';
   if (!document.getElementById('__foxlibstyle')) {
     var st = document.createElement('style');
@@ -89,14 +112,14 @@ class FoxBridge(
     eye.addEventListener('click', function(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      try { FoxApp.openLibrary(); } catch (e) {}
+      try { FoxApp.openLibrary(K); } catch (e) {}
     }, true);
     // Прямые кнопки шапки: первая — поиск, последняя — меню; встаём между ними
     var own = [].filter.call(head.children, function(c) { return c.tagName === 'BUTTON'; });
     head.insertBefore(eye, own.length > 1 ? own[own.length - 1] : null);
     // Подсвечиваем оранжевым, когда есть что продолжить или отложено
     try {
-      var any = Object.keys(JSON.parse(FoxApp.progressMap() || '{}')).length > 0;
+      var any = Object.keys(JSON.parse(FoxApp.progressMap(K) || '{}')).length > 0;
       eye.setAttribute('data-has', any ? '1' : '0');
     } catch (e) {}
   }
@@ -109,7 +132,7 @@ class FoxBridge(
     burger.addEventListener('click', function(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      try { FoxApp.openMenu(); } catch (e) {}
+      try { FoxApp.openMenu(K); } catch (e) {}
     }, true);
   }
 
@@ -135,15 +158,15 @@ class FoxBridge(
     btn.addEventListener('click', function(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      try { paint(FoxApp.toggleFavorite(location.href, title(), poster())); } catch (e) {}
+      try { paint(FoxApp.toggleFavorite(K, location.href, title(), poster())); } catch (e) {}
     }, true);
-    try { paint(FoxApp.isFavorite(location.href)); } catch (e) { paint(false); }
+    try { paint(FoxApp.isFavorite(K, location.href)); } catch (e) { paint(false); }
     (view.parentElement || document.body).insertBefore(btn, view.nextSibling);
   }
 
   // Галочки у просмотренных серий
   try {
-    var seen = JSON.parse(FoxApp.seenEpisodes(location.href) || '[]');
+    var seen = JSON.parse(FoxApp.seenEpisodes(K, location.href) || '[]');
     if (seen.length) {
       [].forEach.call(document.querySelectorAll('.episodes_list a[data-episode]'), function(a) {
         var key = (a.getAttribute('data-season') || '1') + ':' + a.getAttribute('data-episode');
@@ -154,7 +177,7 @@ class FoxBridge(
 
   // Полоска прогресса на карточках каталога: ключ — адрес сериала, как его хранит приложение
   try {
-    var prog = JSON.parse(FoxApp.progressMap() || '{}');
+    var prog = JSON.parse(FoxApp.progressMap(K) || '{}');
     var keys = Object.keys(prog);
     if (keys.length) {
       [].forEach.call(document.querySelectorAll('a[href]'), function(a) {

@@ -35,7 +35,8 @@ class PosterCache(context: Context) {
      */
     fun load(url: String, view: ImageView) {
         view.tag = url
-        if (url.isBlank()) {
+        // Адрес обложки приходит со страницы: качаем только по HTTPS и ничего больше
+        if (url.isBlank() || !url.startsWith("https://")) {
             view.setImageDrawable(null)
             return
         }
@@ -80,7 +81,11 @@ class PosterCache(context: Context) {
     }
 
     /** Постеры сайта заметно крупнее карточки, поэтому ужимаем их при декодировании. */
-    private fun options() = BitmapFactory.Options().apply { inSampleSize = 2 }
+    private fun options() = BitmapFactory.Options().apply {
+        inSampleSize = 2
+        // Постеры непрозрачные: RGB_565 вдвое экономит память против ARGB_8888
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
 
     companion object {
         private const val TIMEOUT_MS = 8000

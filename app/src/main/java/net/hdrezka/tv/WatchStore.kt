@@ -133,6 +133,9 @@ class WatchStore(context: Context) {
 
     // --- Хранение ---
 
+    // Мост вызывается из потока WebView, плеер и экран — из UI: без синхронизации
+    // одновременные правки списка затирали бы друг друга
+    @Synchronized
     private fun read(key: String): List<Show> {
         val raw = prefs.getString(key, null) ?: return emptyList()
         return try {
@@ -143,6 +146,7 @@ class WatchStore(context: Context) {
         }
     }
 
+    @Synchronized
     private fun write(key: String, list: List<Show>, limit: Int) {
         val kept = list.sortedByDescending { it.at }.take(limit)
         val arr = JSONArray()
@@ -192,6 +196,9 @@ class WatchStore(context: Context) {
         fun canonical(url: String): String {
             if (url.isBlank()) return ""
             val uri = Uri.parse(url)
+            // Только обычные веб-адреса: иначе в библиотеку можно записать «javascript:…»
+            // или «file://…», и она же потом откроет это в WebView
+            if (uri.scheme != "http" && uri.scheme != "https" || uri.host.isNullOrBlank()) return ""
             val parts = uri.pathSegments ?: return ""
             if (parts.size < 3) return url.substringBefore('?').trimEnd('/')
             return "${uri.scheme}://${uri.host}/${parts[0]}/${parts[1]}/${parts[2]}"
