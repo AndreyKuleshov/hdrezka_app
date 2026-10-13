@@ -82,8 +82,6 @@ class PlayerController(
     private val btnNextNow = root.findViewById<TextView>(R.id.btnNextNow)
     private val btnNextCancel = root.findViewById<TextView>(R.id.btnNextCancel)
 
-    private val buttons = listOf(btnPrev, btnBack, btnPlay, btnForward, btnNext, btnQuality, btnSkip)
-
     private val cursor = root as? CursorLayout
     private var polling = false
     private var released = false
@@ -99,6 +97,7 @@ class PlayerController(
     private var scrubPos = 0.0
     private var scrubDirty = false
     private var lastScrubStep = 0L
+    private var lastSeekStep = 0L
     private var seekAt = 0L // когда отправили перемотку: до неё плеер ещё отдаёт прежнее время
 
     /** История просмотра: когда последний раз записали позицию и перематывали ли к ней. */
@@ -236,8 +235,10 @@ class PlayerController(
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (first) togglePlay(); return true }
             KeyEvent.KEYCODE_MEDIA_PLAY -> { if (first) js("play()"); return true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { if (first) js("pause()"); return true }
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { if (down) seek(10); return true }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> { if (down) seek(-10); return true }
+            // Удержание кнопки на пульте повторяется десятки раз в секунду: без ограничения
+            // плеер улетал на минуты вперёд, а каждый шаг тянул за собой опрос состояния
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { if (down && seekStep(event)) seek(10); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { if (down && seekStep(event)) seek(-10); return true }
             KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_CHANNEL_UP -> { if (first) episode(1); return true }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_CHANNEL_DOWN -> { if (first) episode(-1); return true }
         }
@@ -318,6 +319,14 @@ class PlayerController(
         scrubDirty = false
     }
 
+    /** Не чаще одного шага перемотки в [SCRUB_REPEAT_MS] — иначе удержание кнопки уносит плеер. */
+    private fun seekStep(event: KeyEvent): Boolean {
+        if (event.repeatCount == 0) { lastSeekStep = event.eventTime; return true }
+        if (event.eventTime - lastSeekStep < SCRUB_REPEAT_MS) return false
+        lastSeekStep = event.eventTime
+        return true
+    }
+
     private fun handleScrubKey(event: KeyEvent): Boolean {
         val down = event.action == KeyEvent.ACTION_DOWN
         when (event.keyCode) {
@@ -361,6 +370,7 @@ class PlayerController(
     }
 
     fun exitToPage() {
+        persistProgress() // иначе место остановки потеряется: дальше плеер уже на паузе
         hideNextCard()
         closeQualityMenu()
         js("exitFs()")
@@ -427,7 +437,9 @@ class PlayerController(
         if (resumeUntil > 0) {
             when {
                 active || System.currentTimeMillis() > resumeUntil -> resumeUntil = 0
-                s.duration > 0 -> js("play()")
+                // Без колбэка: js() в ответе зовёт refresh(), и попытки пошли бы лавиной,
+                // а не раз в опрос
+                s.duration > 0 -> webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.play()")
             }
         }
         // Стал доступен пропуск рекламы — показать контролы с фокусом на «Пропустить»
@@ -451,7 +463,7 @@ class PlayerController(
                 scrubPos = saved
                 commitSeek()
                 val ctx = title.context
-                Toast.makeText(ctx, ctx.getString(R.string.resume_from, fmt(saved)), Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, ctx.getString(R.string.resume_from, formatTime(saved)), Toast.LENGTH_SHORT).show()
             }
         }
         if (playingEpisode && s.time > 1 && System.currentTimeMillis() - lastSaveAt > SAVE_INTERVAL_MS) {
@@ -469,6 +481,7 @@ class PlayerController(
     }
 
     private fun render() {
+        if (mode == Mode.PAGE) return // оверлей скрыт — перерисовывать нечего
         val s = state
         val ctx = title.context
         title.text = s.title
@@ -484,8 +497,8 @@ class PlayerController(
         val awaitingSeek = System.currentTimeMillis() - seekAt < SEEK_SYNC_MS &&
             abs(s.time - scrubPos) > SEEK_SYNC_TOLERANCE_S
         val shownTime = if (scrubbing && (scrubDirty || awaitingSeek)) scrubPos else s.time
-        timeLabel.text = fmt(shownTime)
-        durationLabel.text = fmt(s.duration)
+        timeLabel.text = formatTime(shownTime)
+        durationLabel.text = formatTime(s.duration)
         progress.progress = if (s.duration > 0) (shownTime / s.duration * 1000).toInt() else 0
 
         btnPlay.setImageResource(if (s.playing) R.drawable.ic_player_pause else R.drawable.ic_player_play)
@@ -585,13 +598,6 @@ class PlayerController(
         webView.evalInstalled("__foxplayer", PLAYER_JS, "window.__foxplayer.$call") { refresh() }
     }
 
-    private fun fmt(sec: Double): String {
-        val t = sec.toLong().coerceAtLeast(0)
-        val h = t / 3600
-        val m = t % 3600 / 60
-        val s = t % 60
-        return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
-    }
 
     private fun parse(json: String?): State? {
         if (json.isNullOrBlank() || json == "null") return null
@@ -678,10 +684,10 @@ class PlayerController(
     '.__foxinfo>.full_content-actions{flex:0 0 260px;}' +
     '.__foxinfo>.full_story{flex:1 1 100%;}';
   (document.head || document.documentElement).appendChild(style);
-  var box = document.createElement('div');
-  box.className = '__foxinfo';
-  moved.forEach(function(e) { box.appendChild(e); });
-  player.parentElement.insertBefore(box, player.nextSibling);
+  var info = document.createElement('div');
+  info.className = '__foxinfo';
+  moved.forEach(function(e) { info.appendChild(e); });
+  player.parentElement.insertBefore(info, player.nextSibling);
 })()
 """
 

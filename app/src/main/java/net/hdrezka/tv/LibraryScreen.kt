@@ -48,8 +48,10 @@ class LibraryScreen(
     }
 
     private fun build() {
-        val history = store.history().filter { it.last != null }
-        val saved = store.favorites()
+        // Рядов на экране всё равно не видно больше десятка: строить сотню карточек разом
+        // значит на секунду подвесить открытие экрана
+        val history = store.history().filter { it.last != null }.take(ROW_LIMIT)
+        val saved = store.favorites().take(ROW_LIMIT)
 
         historyRow.removeAllViews()
         if (history.isEmpty()) historyRow.addView(emptyLabel()) else history.forEach { card(historyRow, it, true) }
@@ -68,6 +70,10 @@ class LibraryScreen(
         textSize = 18f
     }
 
+    private companion object {
+        const val ROW_LIMIT = 25
+    }
+
     /** [fromHistory] различает, что делать по долгому OK: забыть просмотр или снять отметку «отложено». */
     private fun card(row: LinearLayout, show: Show, fromHistory: Boolean) {
         val v = LayoutInflater.from(root.context).inflate(R.layout.library_card, row, false)
@@ -77,7 +83,7 @@ class LibraryScreen(
 
         title.text = show.title.ifBlank { show.url.substringAfterLast('/') }
         val last = show.last
-        subtitle.text = if (last != null) "S${last.season}E${last.episode} · ${time(last.pos)}" else ""
+        subtitle.text = if (last != null) "S${last.season}E${last.episode} · ${formatTime(last.pos)}" else ""
         progress.visibility = if (last != null && last.fraction > 0) View.VISIBLE else View.GONE
         progress.progress = ((last?.fraction ?: 0f) * 1000).toInt()
         posters.load(show.poster, v.findViewById(R.id.cardPoster))
@@ -94,11 +100,4 @@ class LibraryScreen(
         row.addView(v)
     }
 
-    private fun time(seconds: Double): String {
-        val total = seconds.toLong().coerceAtLeast(0)
-        val h = total / 3600
-        val m = (total % 3600) / 60
-        val s = total % 60
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
-    }
 }

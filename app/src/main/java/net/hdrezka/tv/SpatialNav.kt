@@ -21,8 +21,12 @@ class SpatialNav(
     fun move(direction: String, onResult: (String) -> Unit = {}) {
         // Пока предыдущий шаг не выполнился, повторы (удержание стрелки) отбрасываем —
         // иначе на медленной приставке очередь шагов продолжает «ехать» после отпускания
-        if (moving) return
+        // Колбэк может не прийти, если страница ушла на новый документ: без срока годности
+        // флаг залипал бы навсегда и стрелки переставали работать
+        val now = android.os.SystemClock.uptimeMillis()
+        if (moving && now - movingSince < MOVE_TIMEOUT_MS) return
         moving = true
+        movingSince = now
         webView.evalInstalled("__foxnav", INSTALL_JS, "window.__foxnav.move('$direction')") {
             moving = false
             onResult(it?.trim('"') ?: "none")
@@ -30,6 +34,7 @@ class SpatialNav(
     }
 
     private var moving = false
+    private var movingSince = 0L
 
 
     /** Нажать выбранный элемент. */
@@ -69,7 +74,10 @@ class SpatialNav(
     }
 
     companion object {
-        private val INSTALL_JS get() = "${PlayerController.PLAYER_JS};$NAV_JS"
+        private const val MOVE_TIMEOUT_MS = 1500L
+
+        // by lazy, а не getter: иначе 66 КБ строки пересобирались бы на каждое нажатие стрелки
+        private val INSTALL_JS by lazy { "${PlayerController.PLAYER_JS};$NAV_JS" }
 
         private const val NAV_JS = """
 if (!window.__foxnav) (function(){
@@ -138,10 +146,14 @@ if (!window.__foxnav) (function(){
     var root = scope || document.body;
     var all = root ? root.getElementsByTagName('*') : [];
     var vpArea = innerWidth * innerHeight, set = new Set(), out = [];
+    var overlapRisk = visiblePopups().length > 0;
     for (var i = 0; i < all.length; i++) {
       var e = all[i];
+      // Сначала дешёвый matches, потом skipped с подъёмом по дереву: обратный порядок
+      // стоил лишнего closest() на каждый элемент страницы
+      if (!(e.matches(SEL) || (pointer(e) && !(e.parentElement && pointer(e.parentElement))))) continue;
       if (skipped(e)) continue;
-      if (e.matches(SEL) || (pointer(e) && !(e.parentElement && pointer(e.parentElement)))) set.add(e);
+      set.add(e);
     }
     // Плеер — одна точка навигации; его внутренние элементы не обходим (ими управляет панель плеера)
     var player = window.__foxplayer && window.__foxplayer.root();
@@ -159,7 +171,8 @@ if (!window.__foxnav) (function(){
     set.forEach(function(e) {
       if (player && e !== player && player.contains(e)) return;
       // Внутри открытого списка пункты могут быть скрыты прокруткой — их не проверяем на перекрытие
-      if (!visible(e) || (!scope && !onTop(e))) return;
+      // Перекрывать кандидатов может только открытый попап — иначе хит-тест не нужен
+      if (!visible(e) || (!scope && overlapRisk && !onTop(e))) return;
       for (var p = e.parentElement; p && p !== root; p = p.parentElement) {
         if (set.has(p)) {
           var r = p.getBoundingClientRect();
@@ -451,11 +464,6 @@ if (!window.__foxnav) (function(){
       if (!f) return 'none';
       set(f);
       return isPlayer(f) ? 'player' : 'ok';
-    },
-    fromPlayer: function(dir) {
-      var p = window.__foxplayer && window.__foxplayer.root();
-      if (p) cur = p;
-      return this.move(dir);
     },
     target: function() {
       if (!cur || !cur.isConnected || !visible(cur)) return null;
