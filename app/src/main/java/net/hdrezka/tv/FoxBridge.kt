@@ -47,6 +47,15 @@ class FoxBridge(
     fun toggleFavorite(k: String, url: String, title: String, poster: String): Boolean =
         allowed(k) && store.toggleFavorite(url, title, poster)
 
+    /** Серия, на которой остановились: из неё страница делает подпись кнопки «Continue». */
+    @JavascriptInterface
+    fun lastEpisode(k: String, url: String): String {
+        if (!allowed(k)) return ""
+        val e = store.lastOf(url) ?: return ""
+        return JSONObject().put("s", e.season).put("e", e.episode)
+            .put("url", e.url).put("pos", e.pos).toString()
+    }
+
     /** Просмотренные серии текущего сериала: массив «сезон:серия». */
     @JavascriptInterface
     fun seenEpisodes(k: String, url: String): String =
@@ -166,6 +175,20 @@ class FoxBridge(
     try { paint(FoxApp.isFavorite(K, location.href)); } catch (e) { paint(false); }
     (view.parentElement || document.body).insertBefore(btn, view.nextSibling);
   }
+
+  // Сериал уже смотрели — «Смотреть онлайн» превращается в «Continue · S1 E3 · 12:34».
+  // Переход делает скрипт плеера: он перехватывает клик по .to_view и читает data-foxcontinue
+  if (view) try {
+    var last = JSON.parse(FoxApp.lastEpisode(K, location.href) || 'null');
+    if (last && last.url) {
+      var ss = Math.max(0, Math.round(last.pos || 0));
+      var hh = Math.floor(ss / 3600), mm = Math.floor(ss % 3600 / 60), sec = ss % 60;
+      var at = (hh ? hh + ':' + ('0' + mm).slice(-2) : mm) + ':' + ('0' + sec).slice(-2);
+      view.setAttribute('data-foxcontinue', last.url);
+      view.textContent = 'Continue' + (last.s ? ' · S' + last.s + ' E' + last.e : '') +
+        (ss > 10 ? ' · ' + at : '');
+    }
+  } catch (e) {}
 
   // Галочки у просмотренных серий
   try {

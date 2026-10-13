@@ -687,7 +687,14 @@ class PlayerController(
   if (!document.getElementById('__foxhide')) {
     var hide = document.createElement('style');
     hide.id = '__foxhide';
-    hide.textContent = '.share-btns,.autoswitch,footer,.footer{display:none !important;}';
+    // Плеер на странице не нужен: выбрали озвучку, сезон и серию — и сразу на весь экран.
+    // Уводим за кадр, а не display:none, чтобы PlayerJS поднялся с нормальными размерами:
+    // с нулевой шириной он не запускается, и автопереход на весь экран не срабатывает.
+    // Привязано к тому же `__foxnc`, что и скрытие родных контролов: в режиме курсора
+    // возвращаются оба — там плеером на странице пользуются мышью
+    hide.textContent = '.share-btns,.autoswitch,footer,.footer{display:none !important;}' +
+      'html.__foxnc:not(.__foxfs_on) .video-responsive{position:fixed !important;left:-20000px !important;' +
+      'top:0 !important;width:100vw !important;height:56.25vw !important;}';
     (document.head || document.documentElement).appendChild(hide);
   }
   // Порядок блоков под TV: озвучка → сезон → серия → плеер. Список серий сайт кладёт ПОД плеер,
@@ -779,6 +786,13 @@ if (!window.__foxplayer) (function(){
     if (!b || !root()) return;
     ev.preventDefault();
     ev.stopPropagation();
+    // Кнопка «Continue»: адрес серии, где остановились, приложение кладёт в data-foxcontinue
+    var go = b.getAttribute('data-foxcontinue');
+    if (go && go.split('#')[0] !== location.href.split('#')[0]) {
+      try { sessionStorage.setItem(AUTOPLAY, '1'); } catch (e) {}
+      location.href = go;
+      return;
+    }
     window.__foxplayer.play();
   }, true);
   function eps() { return [].slice.call(document.querySelectorAll('.episodes_list a[data-episode]')); }
@@ -914,7 +928,9 @@ if (!window.__foxplayer) (function(){
         var p = e.parentElement; if (!p) break;
         [].forEach.call(p.children, function(c) { if (c !== e && c.tagName !== 'SCRIPT' && c.tagName !== 'STYLE') c.classList.add('__foxfs_hide'); });
       }
-      if (!on) r.scrollIntoView({ block: 'center' });
+      // Плеер уведён за кадр, прокручивать к нему некуда — возвращаемся к выбору серии
+      if (!on) (document.querySelector('.episodes_list') || document.querySelector('.full_player') || r)
+        .scrollIntoView({ block: 'center' });
       return on;
     },
     episode: function(dir) {

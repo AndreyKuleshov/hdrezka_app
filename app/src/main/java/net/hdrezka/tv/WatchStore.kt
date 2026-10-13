@@ -56,6 +56,10 @@ class WatchStore(context: Context) {
         return if (last.url == episodeUrl) last.pos else 0.0
     }
 
+    /** Серия, на которой остановились в этом сериале, — для кнопки «Continue». */
+    fun lastOf(showUrl: String): LastEpisode? =
+        read(KEY_HISTORY).firstOrNull { it.url == canonical(showUrl) }?.last
+
     /** Просмотренные серии сериала в виде «сезон:серия» — для галочек в списке серий. */
     fun seenEpisodes(showUrl: String): Set<String> =
         read(KEY_HISTORY).firstOrNull { it.url == canonical(showUrl) }?.seen ?: emptySet()
