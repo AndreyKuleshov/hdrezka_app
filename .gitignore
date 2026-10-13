@@ -51,3 +51,6 @@ Desktop.ini
 .fleet/
 *.workspace
 *.project
+
+# Снапшоты дизайн-ревью Impeccable — рабочие заметки, не часть приложения
+.impeccable/

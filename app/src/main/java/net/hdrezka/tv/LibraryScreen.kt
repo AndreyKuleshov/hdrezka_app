@@ -1,0 +1,104 @@
+package net.hdrezka.tv
+
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+
+/**
+ * Экран библиотеки поверх страницы: ряд «Continue watching» (недосмотренные серии)
+ * и ряд «Saved» (отложенные сериалы). Навигация обычная, по фокусу:
+ * стрелки ходят по карточкам, OK открывает, долгое OK убирает из списка.
+ */
+class LibraryScreen(
+    private val root: View,
+    private val store: WatchStore,
+    private val posters: PosterCache,
+    /**
+     * Открыть адрес. [play] = true — это недосмотренная серия, её надо сразу запустить
+     * с сохранённого места; false — страница сериала, где выбирают серию сами.
+     */
+    private val onOpen: (url: String, play: Boolean) -> Unit,
+) {
+    private val historyRow = root.findViewById<LinearLayout>(R.id.historyRow)
+    private val savedRow = root.findViewById<LinearLayout>(R.id.savedRow)
+    private val savedTitle = root.findViewById<TextView>(R.id.savedTitle)
+    private val savedScroll = root.findViewById<View>(R.id.savedScroll)
+    private val hint = root.findViewById<TextView>(R.id.libraryHint)
+
+    val isOpen get() = root.visibility == View.VISIBLE
+
+    fun open() {
+        build()
+        root.visibility = View.VISIBLE
+        root.post {
+            val first = (0 until historyRow.childCount).map(historyRow::getChildAt)
+                .firstOrNull { it.isFocusable }
+                ?: (0 until savedRow.childCount).map(savedRow::getChildAt).firstOrNull { it.isFocusable }
+            first?.requestFocusFromTouch()
+        }
+    }
+
+    fun close() {
+        root.visibility = View.GONE
+        historyRow.removeAllViews()
+        savedRow.removeAllViews()
+    }
+
+    private fun build() {
+        val history = store.history().filter { it.last != null }
+        val saved = store.favorites()
+
+        historyRow.removeAllViews()
+        if (history.isEmpty()) historyRow.addView(emptyLabel()) else history.forEach { card(historyRow, it, true) }
+
+        savedRow.removeAllViews()
+        saved.forEach { card(savedRow, it, false) }
+        val hasSaved = saved.isNotEmpty()
+        savedTitle.visibility = if (hasSaved) View.VISIBLE else View.GONE
+        savedScroll.visibility = if (hasSaved) View.VISIBLE else View.GONE
+        hint.visibility = if (history.isEmpty() && !hasSaved) View.GONE else View.VISIBLE
+    }
+
+    private fun emptyLabel() = TextView(root.context).apply {
+        text = context.getString(R.string.library_empty)
+        setTextColor(0xCCFFFFFF.toInt())
+        textSize = 18f
+    }
+
+    /** [fromHistory] различает, что делать по долгому OK: забыть просмотр или снять отметку «отложено». */
+    private fun card(row: LinearLayout, show: Show, fromHistory: Boolean) {
+        val v = LayoutInflater.from(root.context).inflate(R.layout.library_card, row, false)
+        val title = v.findViewById<TextView>(R.id.cardTitle)
+        val subtitle = v.findViewById<TextView>(R.id.cardSubtitle)
+        val progress = v.findViewById<ProgressBar>(R.id.cardProgress)
+
+        title.text = show.title.ifBlank { show.url.substringAfterLast('/') }
+        val last = show.last
+        subtitle.text = if (last != null) "S${last.season}E${last.episode} · ${time(last.pos)}" else ""
+        progress.visibility = if (last != null && last.fraction > 0) View.VISIBLE else View.GONE
+        progress.progress = ((last?.fraction ?: 0f) * 1000).toInt()
+        posters.load(show.poster, v.findViewById(R.id.cardPoster))
+
+        // Из истории открываем саму серию и запускаем её; из отложенных — страницу сериала,
+        // где сезон и серию выбирают заново
+        val target = if (fromHistory) last?.url?.ifBlank { show.url } ?: show.url else show.url
+        v.setOnClickListener { onOpen(target, fromHistory && last != null) }
+        v.setOnLongClickListener {
+            if (fromHistory) store.forget(show.url) else store.toggleFavorite(show.url, show.title, show.poster)
+            build()
+            true
+        }
+        row.addView(v)
+    }
+
+    private fun time(seconds: Double): String {
+        val total = seconds.toLong().coerceAtLeast(0)
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
+    }
+}
