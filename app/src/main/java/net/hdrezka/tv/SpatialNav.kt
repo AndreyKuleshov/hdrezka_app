@@ -173,7 +173,6 @@ if (!window.__foxnav) (function(){
   function candidates(scope) {
     var root = scope || document.body;
     var vpArea = innerWidth * innerHeight, out = [];
-    var overlapRisk = visiblePopups().length > 0;
     var set;
     if (scope) {
       set = rawSet(root);
@@ -197,8 +196,10 @@ if (!window.__foxnav) (function(){
     set.forEach(function(e) {
       if (player && e !== player && player.contains(e)) return;
       // Внутри открытого списка пункты могут быть скрыты прокруткой — их не проверяем на перекрытие
-      // Перекрывать кандидатов может только открытый попап — иначе хит-тест не нужен
-      if (!visible(e) || (!scope && overlapRisk && !onTop(e))) return;
+      // Хит-тест нужен всегда, а не только при открытых попапах: ссылки свёрнутого меню
+      // сайта видимы по стилям, но лежат под страницей — без проверки рамка уходила на них,
+      // и с экрана она пропадала, не дойдя до карточек
+      if (!visible(e) || (!scope && !onTop(e))) return;
       for (var p = e.parentElement; p && p !== root; p = p.parentElement) {
         if (set.has(p)) {
           var r = p.getBoundingClientRect();
