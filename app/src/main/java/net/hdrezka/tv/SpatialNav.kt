@@ -429,14 +429,31 @@ if (!window.__foxnav) (function(){
   // Прокрутка к выбранному элементу без «дёрганья»: страницу двигаем, только если элемент у края
   // экрана или за ним, и ровно настолько, чтобы он был виден с отступом. Раньше элемент всегда
   // ставился в центр — у карточек разной высоты центр «прыгал» даже при переходе по ряду.
+  // На сколько сдвинуть страницу, чтобы элемент был виден с отступом от края
+  function offsetFor(e) {
+    var r = e.getBoundingClientRect(), m = innerHeight * 0.12;
+    if (r.height > innerHeight - 2 * m) return r.top - m;                // выше экрана — к верхнему краю
+    if (r.top < m) return r.top - m;                                     // у верхнего края — чуть вниз
+    if (r.bottom > innerHeight - m) return r.bottom - (innerHeight - m); // у нижнего — чуть вверх
+    return 0;
+  }
+
   function reveal(e) {
     // Внутри прокручиваемых списков (выпадающий список, меню) — минимальная прокрутка самого списка
     if (popupOf(e)) e.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    var r = e.getBoundingClientRect(), m = innerHeight * 0.12, dy = 0;
-    if (r.height > innerHeight - 2 * m) dy = r.top - m;           // выше экрана — к верхнему краю
-    else if (r.top < m) dy = r.top - m;                           // у верхнего края — чуть вниз
-    else if (r.bottom > innerHeight - m) dy = r.bottom - (innerHeight - m); // у нижнего — чуть вверх
+    var dy = offsetFor(e);
     if (Math.abs(dy) > 1) scrollBy({ top: dy, behavior: 'smooth' });
+  }
+
+  // Плавная прокрутка к элементу может ещё идти в момент нажатия OK: касание придёт по уезжающей
+  // странице и кликом не засчитается — элемент только подсветится (кнопка в шапке так застревала
+  // в зелёном :hover сайта, а открывалась лишь со второго раза). Поэтому перед нажатием прокрутку
+  // останавливаем и доводим элемент в кадр мгновенно: scrollTo/scrollBy с двумя аргументами
+  // всегда без анимации и прерывают начатую smooth-прокрутку.
+  function settle(e) {
+    scrollTo(scrollX, scrollY);
+    var dy = offsetFor(e);
+    if (Math.abs(dy) > 1) scrollBy(0, dy);
   }
 
   window.__foxnav = {
@@ -510,6 +527,7 @@ if (!window.__foxnav) (function(){
           var o = owner; owner = null; set(o);
         }
       }, 400);
+      settle(hit);
       var r = hit.getBoundingClientRect(), k = devicePixelRatio * (visualViewport ? visualViewport.scale : 1);
       var ox = visualViewport ? visualViewport.offsetLeft : 0, oy = visualViewport ? visualViewport.offsetTop : 0;
       // В своём iframe (проверка «я не робот») центр рамки — пустое место: чекбокс прижат к углу.
