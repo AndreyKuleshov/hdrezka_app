@@ -49,6 +49,15 @@ class SpatialNav(
         }
     }
 
+    /**
+     * Поставить рамку сразу после загрузки страницы — на главное действие («Смотреть онлайн»,
+     * первая карточка) или туда, где она была на этой странице до ухода.
+     * Без этого страница открывалась вообще без рамки, а первая стрелка уводила фокус в шапку.
+     */
+    fun autofocus() {
+        webView.evalInstalled("__foxnav", INSTALL_JS, "window.__foxnav.autofocus()")
+    }
+
     /** Закрыть открытый выпадающий список/окно; [onResult] получает true, если было что закрывать. */
     fun escape(onResult: (Boolean) -> Unit) {
         webView.evaluateJavascript("window.__foxnav ? window.__foxnav.escape() : false") { onResult(it == "true") }
@@ -64,10 +73,15 @@ class SpatialNav(
 
         private const val NAV_JS = """
 if (!window.__foxnav) (function(){
-  var CLS = '__foxfocus';
+  var CLS = '__foxfocus', CLS_IN = '__foxfocus-in';
   var style = document.createElement('style');
+  // На странице рамка рисуется наружу от элемента. Внутри выпадающих списков её обрезает
+  // контейнер — от неё остаётся нитка, которую перебивает зелёная «выбранность» сайта,
+  // поэтому там подсветка внутренняя: заливкой, как в панели разделов.
   style.textContent = '.' + CLS + '{outline:4px solid #FF6A00 !important;outline-offset:2px !important;' +
-    'box-shadow:0 0 0 8px rgba(255,106,0,.35) !important;border-radius:6px;}';
+    'box-shadow:0 0 0 8px rgba(255,106,0,.55) !important;border-radius:6px;}' +
+    '.' + CLS_IN + '{box-shadow:inset 0 0 0 4px #FF6A00 !important;' +
+    'background:rgba(255,106,0,.22) !important;color:#fff !important;border-radius:4px;}';
   (document.head || document.documentElement).appendChild(style);
 
   var SEL = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=link],' +
@@ -79,6 +93,7 @@ if (!window.__foxnav) (function(){
   function skipped(e) { return e.matches(SKIP) || !!e.closest(SKIP_AREAS); }
   var cur = null, owner = null; // owner — элемент, открывший выпадающий список/окно
   var opened = null;             // список/окно, появившееся после нашего нажатия OK
+  var scrollPick = null;         // отложенный перенос рамки после прокрутки «в пустоту»
   function closeButton(popup) {
     var pr = popup.getBoundingClientRect(), best = null;
     [].forEach.call(popup.querySelectorAll('button,[class*=close],[aria-label*=close i],[aria-label*=закры i]'), function(b) {
@@ -131,6 +146,16 @@ if (!window.__foxnav) (function(){
     // Плеер — одна точка навигации; его внутренние элементы не обходим (ими управляет панель плеера)
     var player = window.__foxplayer && window.__foxplayer.root();
     if (player && visible(player)) set.add(player);
+    // Проверка «Confirm you're human» живёт в <iframe> того же домена: стрелки внутрь не заходят,
+    // и до чекбокса с пульта было не добраться. Сам iframe делаем одной точкой обхода,
+    // а OK по нему целится в элемент внутри. Чужие (рекламные) iframe недоступны из-за
+    // правила источника — исключение в try — и целями не становятся.
+    [].forEach.call(root.getElementsByTagName('iframe'), function(f) {
+      if (skipped(f)) return;
+      var d = null;
+      try { d = f.contentDocument; } catch (err) { d = null; }
+      if (d && d.querySelector(SEL)) set.add(f);
+    });
     set.forEach(function(e) {
       if (player && e !== player && player.contains(e)) return;
       // Внутри открытого списка пункты могут быть скрыты прокруткой — их не проверяем на перекрытие
@@ -181,6 +206,9 @@ if (!window.__foxnav) (function(){
   function isPlayer(e) { return !!(window.__foxplayer && e === window.__foxplayer.root()); }
 
   function rect(e) { var r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }
+
+  /** Элемент хотя бы частично в пределах экрана. */
+  function inView(e) { var r = rect(e); return r.b > 0 && r.t < innerHeight; }
 
   var ROW_TOL = 24; // CSS px: элементы, чей верх в пределах этого от ближайшего, считаются одним рядом
   function pick(dir, list) {
@@ -246,24 +274,116 @@ if (!window.__foxnav) (function(){
     return best ? best.e : null;
   }
 
-  function first(list) {
-    // Ближайший к левому верхнему углу видимой области
+  // Стартовый элемент, когда рамки на странице нет: от края, противоположного направлению
+  // движения. Раньше всегда брался ближайший к левому верхнему углу, и нажатие «вниз»
+  // ставило рамку в шапку — визуально фокус ехал вверх, и это читалось как «пульт не работает».
+  function first(list, dir) {
     var best = null, bestScore = Infinity;
     list.forEach(function(e) {
       var r = rect(e);
       if (r.b < 0 || r.t > innerHeight) return;
-      var score = Math.max(r.t, 0) * 2 + Math.max(r.l, 0);
+      var t = Math.max(r.t, 0), l = Math.max(r.l, 0), score;
+      if (dir === 'up') score = (innerHeight - Math.min(r.b, innerHeight)) * 2 + l;
+      else if (dir === 'left') score = (innerWidth - Math.min(r.r, innerWidth)) * 2 + t;
+      else if (dir === 'right') score = l * 2 + t;
+      else score = t * 2 + l; // 'down' и первый вход без направления
       if (score < bestScore) { bestScore = score; best = e; }
     });
     return best || list[0] || null;
   }
 
+  // Главное действие страницы — кнопка запуска просмотра. Фокус на ней сразу после загрузки
+  // убирает путь «шапка → трейлер → кнопка» и не даёт промахнуться в трейлер.
+  var MAIN = 'button.to_view,.to_view';
+  function startTarget(list) {
+    var main = null, card = null;
+    list.forEach(function(e) {
+      var r = rect(e);
+      if (r.b < 0 || r.t > innerHeight * 1.5) return;
+      if (!main && e.matches && e.matches(MAIN)) main = e;
+      if (!card && e.__foxTarget) card = e; // объединённая карточка каталога
+    });
+    return main || card || first(list, 'down');
+  }
+
+  // Где была рамка на этой странице. Ключ переживает «Назад» и перезагрузку, поэтому возврат
+  // из сериала ставит рамку на ту же карточку, а не в шапку.
+  var POS = '__foxpos:';
+  function keyOf(e) {
+    var link = e.__foxTarget && e.__foxTarget.href ? e.__foxTarget.href : e.href;
+    if (link) return 'h|' + link;
+    var ep = e.getAttribute && e.getAttribute('data-episode');
+    if (ep) return 'e|' + ep;
+    var path = [], n = e;
+    while (n && n.nodeType === 1 && n !== document.body && path.length < 8) {
+      var i = 1, s = n;
+      while ((s = s.previousElementSibling)) i++;
+      path.unshift(n.tagName + ':' + i);
+      n = n.parentElement;
+    }
+    return 'p|' + path.join('>');
+  }
+  // Шапка есть на каждой странице, и попавшая в неё рамка (например, иконка поиска) перебивала
+  // бы главное действие при следующем открытии. Запоминаем только позиции в содержимом.
+  var CHROME = 'header,nav,[class*="header"],[class*="menu"],[id*="header"]';
+  function remember(e) {
+    if (e.closest && e.closest(CHROME)) return;
+    try { sessionStorage.setItem(POS + location.href, keyOf(e)); } catch (err) {}
+  }
+  function restore(list) {
+    var want = null;
+    try { want = sessionStorage.getItem(POS + location.href); } catch (err) {}
+    if (!want) return null;
+    for (var i = 0; i < list.length; i++) if (keyOf(list[i]) === want) return list[i];
+    return null;
+  }
+
+  // Первый видимый кликабельный элемент внутри своего iframe (чекбокс проверки «я не робот»).
+  function innerTarget(f) {
+    if (!f || f.tagName !== 'IFRAME') return null;
+    try {
+      var d = f.contentDocument;
+      if (!d) return null;
+      var list = d.querySelectorAll(SEL);
+      for (var i = 0; i < list.length; i++) {
+        var e = list[i], r = e.getBoundingClientRect();
+        if (r.width <= 4 || r.height <= 4) continue;
+        // Чекбокс проверки нарисован стилями: сам input прозрачный (opacity:0), и рамка на нём
+        // была бы не видна. Берём его видимую обёртку — нажатие по label переключает чекбокс.
+        if (!visible(e)) {
+          var box = (e.closest && e.closest('label')) || e.parentElement;
+          return box && visible(box) ? box : e;
+        }
+        return e;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  // Подсвечиваем сам чекбокс внутри iframe, а не рамку всего блока: блок бывает 912×200
+  // почти пустых пикселей, и по рамке не понять, куда попадёт OK. Стиль внедряем
+  // в документ iframe — он того же домена, иначе доступа бы не было.
+  function markInner(f, on) {
+    var e = innerTarget(f);
+    if (!e) return false;
+    var d = e.ownerDocument;
+    if (on && !d.getElementById('__foxstyle')) {
+      var s = d.createElement('style');
+      s.id = '__foxstyle';
+      s.textContent = style.textContent;
+      (d.head || d.documentElement).appendChild(s);
+    }
+    if (on) e.classList.add(CLS); else e.classList.remove(CLS);
+    return true;
+  }
+
   function set(e) {
-    if (cur) cur.classList.remove(CLS);
+    if (cur) { cur.classList.remove(CLS); cur.classList.remove(CLS_IN); markInner(cur, false); }
     cur = e;
     if (!e) return;
-    e.classList.add(CLS);
+    if (!markInner(e, true)) e.classList.add(popupOf(e) ? CLS_IN : CLS);
     reveal(e);
+    remember(e);
   }
 
   // Прокрутка к выбранному элементу без «дёрганья»: страницу двигаем, только если элемент у края
@@ -285,7 +405,8 @@ if (!window.__foxnav) (function(){
         // Список закрылся — возвращаемся к элементу, который его открыл
         var back = owner && owner.isConnected && visible(owner) ? owner : null;
         owner = null;
-        var f = back || first(candidates());
+        var start = candidates();
+        var f = back || restore(start) || first(start, dir);
         set(f);
         return f && isPlayer(f) ? 'player' : 'ok';
       }
@@ -293,8 +414,43 @@ if (!window.__foxnav) (function(){
       var list = candidates(popup);
       var next = pick(dir, list) || ((dir === 'left' || dir === 'right') ? wrap(dir, list) : null);
       if (next) { set(next); return isPlayer(next) ? 'player' : 'ok'; }
-      if (!popup && (dir === 'down' || dir === 'up')) scrollBy(0, (dir === 'down' ? 1 : -1) * innerHeight * 0.6);
+      if (!popup && (dir === 'down' || dir === 'up')) {
+        var before = scrollY;
+        scrollBy(0, (dir === 'down' ? 1 : -1) * innerHeight * 0.6);
+        clearTimeout(scrollPick);
+        scrollPick = setTimeout(function() {
+          // Страница не сдвинулась (конец списка — пагинация): рамку не трогаем. Иначе
+          // «вниз» отбрасывало бы её вверх, на первый видимый элемент
+          if (Math.abs(scrollY - before) < 2) return;
+          // Рамка осталась бы на уехавшем за экран элементе, и следующее OK нажало бы невидимое
+          if (cur && cur.isConnected && visible(cur) && inView(cur)) {
+            var next = pick(dir, candidates());
+            if (next) set(next);
+            return;
+          }
+          set(first(candidates(), dir));
+        }, 400);
+      }
       return 'none';
+    },
+    // Рамка сразу после загрузки страницы, не дожидаясь первой стрелки: туда, где она была
+    // на этой странице, иначе — на главное действие (кнопка просмотра, первая карточка).
+    autofocus: function() {
+      var list = candidates();
+      if (!list.length) return 'none';
+      // Проверка «я не робот» грузится в iframe асинхронно, уже после onPageFinished: когда она
+      // появилась, рамка обязана перейти на неё — больше нажимать на такой странице нечего
+      for (var n = 0; n < list.length; n++) {
+        if (list[n].tagName === 'IFRAME') {
+          if (cur !== list[n]) set(list[n]);
+          return 'ok';
+        }
+      }
+      if (cur && cur.isConnected && visible(cur)) return 'ok';
+      var f = restore(list) || startTarget(list);
+      if (!f) return 'none';
+      set(f);
+      return isPlayer(f) ? 'player' : 'ok';
     },
     fromPlayer: function(dir) {
       var p = window.__foxplayer && window.__foxplayer.root();
@@ -321,6 +477,16 @@ if (!window.__foxnav) (function(){
       }, 400);
       var r = hit.getBoundingClientRect(), k = devicePixelRatio * (visualViewport ? visualViewport.scale : 1);
       var ox = visualViewport ? visualViewport.offsetLeft : 0, oy = visualViewport ? visualViewport.offsetTop : 0;
+      // В своём iframe (проверка «я не робот») центр рамки — пустое место: чекбокс прижат к углу.
+      // Берём координаты первого видимого элемента внутри и переводим их в систему страницы.
+      var innerEl = innerTarget(hit);
+      if (innerEl) {
+        var ir = innerEl.getBoundingClientRect(); // координаты внутри документа iframe
+        return {
+          x: (r.left + (ir.left + ir.right) / 2 - ox) * k,
+          y: (r.top + (ir.top + ir.bottom) / 2 - oy) * k
+        };
+      }
       return { x: ((r.left + r.right) / 2 - ox) * k, y: ((r.top + r.bottom) / 2 - oy) * k };
     },
     reset: function() { set(null); },
