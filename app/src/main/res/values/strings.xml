@@ -33,7 +33,7 @@
     <string name="fav_remove">★ Saved</string>
     <!-- Подсказка при первом запуске: без неё о долгом OK и перемотке узнать неоткуда -->
     <string name="hint_title">Remote control</string>
-    <string name="hint_body">OK — open the selected item\nHold OK — sections panel\nBack — go back, twice on home to exit\nUp in player — scrub the timeline\nPlay/Pause — pause the episode</string>
+    <string name="hint_body">OK — open the selected item\nHold OK — sections panel\nEye in the header — continue watching and saved shows\nBack — go back, twice on home to exit\nUp in player — scrub the timeline\nPlay/Pause — pause the episode</string>
     <string name="hint_dismiss">Press any button to continue</string>
     <string name="menu_hint">Remote control help</string>
     <!-- Обновление приложения из GitHub Releases -->
