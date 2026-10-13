@@ -9,6 +9,8 @@
     <style name="EpisodeButton">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:gravity">center</item>
         <item name="android:background">@drawable/menu_item_bg</item>
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
@@ -16,8 +18,8 @@
         <item name="android:paddingEnd">16dp</item>
         <item name="android:paddingTop">12dp</item>
         <item name="android:paddingBottom">12dp</item>
-        <item name="android:textColor">#FFFFFF</item>
-        <item name="android:textSize">17sp</item>
+        <item name="android:textColor">@color/focus_text</item>
+        <item name="android:textSize">18sp</item>
         <item name="android:layout_marginStart">2dp</item>
         <item name="android:layout_marginEnd">2dp</item>
         <item name="android:maxLines">1</item>

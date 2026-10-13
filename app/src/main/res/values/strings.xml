@@ -21,6 +21,21 @@
     <string name="episode_label">Season %1$s · Episode %2$s of %3$d</string>
     <string name="menu_episode_prev">Previous episode</string>
     <string name="menu_episode_next">Next episode</string>
+    <string name="loading">Loading…</string>
+    <!-- История просмотра и отложенные -->
+    <string name="resume_from">Continue from %1$s</string>
+    <string name="library_continue">Continue watching</string>
+    <string name="library_saved">Saved</string>
+    <string name="library_empty">Nothing here yet</string>
+    <string name="library_forget">Hold OK to remove</string>
+    <string name="menu_saved">Saved shows</string>
+    <string name="fav_add">★ Save for later</string>
+    <string name="fav_remove">★ Saved</string>
+    <!-- Подсказка при первом запуске: без неё о долгом OK и перемотке узнать неоткуда -->
+    <string name="hint_title">Remote control</string>
+    <string name="hint_body">OK — open the selected item\nHold OK — sections panel\nBack — go back, twice on home to exit\nUp in player — scrub the timeline\nPlay/Pause — pause the episode</string>
+    <string name="hint_dismiss">Press any button to continue</string>
+    <string name="menu_hint">Remote control help</string>
     <!-- Подписи значков контролов для экранного диктора (на экране не показываются) -->
     <string name="cd_prev_episode">Previous episode</string>
     <string name="cd_next_episode">Next episode</string>

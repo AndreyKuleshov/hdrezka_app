@@ -36,6 +36,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var fullscreenContainer: FrameLayout
+    private lateinit var hintOverlay: View
+    private lateinit var loadingOverlay: View
+    private lateinit var library: LibraryScreen
+    private val posters by lazy { PosterCache(this) }
+    private var loadingSince = 0L
+    /** Серию открыли из библиотеки — ждём не страницу, а плеер, как при выборе серии на сайте. */
+    private var autoplayRequested = false
+    private var autoplayPending = false // загрузка начата выбором серии — ждём не страницу, а плеер
 
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -44,10 +52,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var menuPanel: MenuPanel
     private var sections: List<Section> = emptyList()
     private var swallowOk = false // долгое OK открыло меню — гасим остаток нажатия
+    /** До этого момента OK не доходит до панели: иначе отпускание нажимает её первый пункт. */
+    private var menuGuardUntil = 0L
     private lateinit var spatialNav: SpatialNav
     private lateinit var player: PlayerController
 
     private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
+    private val store by lazy { WatchStore(this) }
     private val siteHost: String = Uri.parse(BuildConfig.START_URL).host.orEmpty()
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -63,6 +74,13 @@ class MainActivity : AppCompatActivity() {
         progress = findViewById(R.id.progress)
         errorView = findViewById(R.id.errorView)
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
+        hintOverlay = findViewById(R.id.hintOverlay)
+        loadingOverlay = findViewById(R.id.loadingOverlay)
+        library = LibraryScreen(findViewById(R.id.libraryScreen), store, posters) { url, play ->
+            openFromLibrary(url, play)
+        }
+        // Первый запуск: показываем, какие кнопки что делают, — иначе о долгом OK не узнать
+        if (!prefs.getBoolean(KEY_HINT_SHOWN, false)) hintOverlay.visibility = View.VISIBLE
         menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
         sections = MenuPanel.parse(prefs.getString(KEY_SECTIONS, null))
 
@@ -70,7 +88,7 @@ class MainActivity : AppCompatActivity() {
         // экранный курсор стрелками — запасной режим для пультов без гироскопа
         cursorLayout.cursorEnabled = prefs.getBoolean(KEY_CURSOR, false)
         spatialNav = SpatialNav(webView, { x, y -> cursorLayout.tapAt(x, y) }) { player.play() }
-        player = PlayerController(webView, cursorLayout, { x, y -> cursorLayout.tapAt(x, y) }) {
+        player = PlayerController(webView, cursorLayout, { x, y -> cursorLayout.tapAt(x, y) }, store) {
             // Вернулись из полноэкранного режима на страницу сериала
             webView.requestFocus()
         }
@@ -95,6 +113,11 @@ class MainActivity : AppCompatActivity() {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
         }
+        // Страница спрашивает у приложения, что просмотрено и отложено, и рисует это у себя.
+        // Мост вызывается из потока WebView, поэтому открытие экрана переводим в UI-поток
+        webView.addJavascriptInterface(
+            FoxBridge(store) { runOnUiThread { openLibrary() } }, FoxBridge.NAME
+        )
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
@@ -107,6 +130,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 errorView.visibility = View.GONE
                 player.onPageStarted()
+                showLoading()
             }
 
             override fun onPageFinished(view: WebView, url: String) {
@@ -115,22 +139,37 @@ class MainActivity : AppCompatActivity() {
                     view.clearHistory()
                 }
                 // Запоминаем только страницы самого сайта, чтобы не открывать рекламу при запуске
+                awaitContentReady()
                 if (isSameSite(Uri.parse(url))) {
                     prefs.edit().putString(KEY_LAST_URL, url).apply()
                     collectSections()
                     player.onPageFinished()
+                    view.evaluateJavascript(FoxBridge.LIBRARY_JS, null)
+                    // Рамка появляется сама, не дожидаясь первой стрелки: иначе страница
+                    // открывается без видимого фокуса, а первая стрелка уводит его в шапку.
+                    // Вторая попытка — для блоков, которые догружаются после onPageFinished
+                    // (проверка «я не робот» появляется в iframe через секунду с лишним)
+                    if (!cursorLayout.cursorEnabled) AUTOFOCUS_DELAYS_MS.forEach { delay ->
+                        view.postDelayed({
+                            if (!player.isFullscreen && !menuPanel.isOpen) spatialNav.autofocus()
+                        }, delay)
+                    }
                 }
                 CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) errorView.visibility = View.VISIBLE
+                if (request.isForMainFrame) {
+                    errorView.visibility = View.VISIBLE
+                    hideLoading() // иначе заставка осталась бы поверх сообщения об ошибке
+                }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
                 // API 21–22: вызывается только для основного фрейма
                 errorView.visibility = View.VISIBLE
+                hideLoading()
             }
         }
 
@@ -182,6 +221,7 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             when {
+                library.isOpen -> { library.close(); webView.requestFocus() }
                 menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
                 player.handleBack() -> Unit
@@ -228,6 +268,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun openMenu() {
         if (customView != null || menuPanel.isOpen) return
+        // Панель открывают долгим OK, и фокус сразу встаёт на первый пункт: отпускание той же
+        // кнопки нажимало его, панель только мелькала. Короткое время OK до панели не пускаем
+        menuGuardUntil = System.currentTimeMillis() + MENU_GUARD_MS
         cursorLayout.suspended = true
         val home = Section(getString(R.string.menu_home), BuildConfig.START_URL, 0)
         val list = listOf(home) + sections.filterNot { it.url.trimEnd('/') == home.url.trimEnd('/') }
@@ -236,12 +279,84 @@ class MainActivity : AppCompatActivity() {
                 if (s.hasPrev) add(MenuPanel.Action(getString(R.string.menu_episode_prev)) { closeMenu(); player.episode(-1) })
                 if (s.hasNext) add(MenuPanel.Action(getString(R.string.menu_episode_next)) { closeMenu(); player.episode(1) })
             }
+            // «Продолжить просмотр» живёт на кнопке-глазе в шапке, дублировать его здесь незачем
+            if (store.favorites().isNotEmpty()) add(MenuPanel.Action(getString(R.string.menu_saved)) { openLibrary() })
             if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
+            add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); hintOverlay.visibility = View.VISIBLE })
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
             add(MenuPanel.Action(getString(modeTitle)) { closeMenu(); toggleCursor() })
         }
         menuPanel.open(list, { closeMenu(); webView.loadUrl(it.url) }, actions)
+    }
+
+    /**
+     * Открыть из библиотеки. Недосмотренная серия ([play]) запускается сразу с сохранённого места,
+     * отложенный сериал — просто открывает свою страницу, где выбирают сезон и серию.
+     */
+    private fun openFromLibrary(url: String, play: Boolean) {
+        library.close()
+        if (play) {
+            autoplayRequested = true
+            player.playOnNextPage()
+        }
+        webView.requestFocus()
+        webView.loadUrl(url)
+    }
+
+    private fun openLibrary() {
+        closeMenu()
+        library.open()
+    }
+
+    /** Закрыть страницу заставкой на время загрузки (в полноэкранном видео не мешаем). */
+    private fun showLoading() {
+        if (player.isFullscreen || customView != null) return
+        loadingSince = System.currentTimeMillis()
+        autoplayPending = false
+        loadingOverlay.visibility = View.VISIBLE
+    }
+
+    private fun hideLoading() {
+        autoplayPending = false
+        autoplayRequested = false
+        loadingOverlay.visibility = View.GONE
+    }
+
+    /**
+     * Снять заставку, когда сайт дорисовал содержимое: до этого момента фильтры видны пустыми,
+     * без надписей. Если страница так и не «устаканилась», показываем её по таймауту.
+     */
+    private fun awaitContentReady() {
+        if (loadingOverlay.visibility != View.VISIBLE) return
+        webView.evaluateJavascript(CONTENT_READY_JS) { result ->
+            val state = result?.trim('"')
+            // «autoplay» приходит при выборе серии на сайте; из библиотеки серию открыли мы сами
+            if (state == "autoplay" || autoplayRequested) autoplayPending = true
+            // При запуске серии ждём не готовности страницы, а раскрытия плеера на весь экран:
+            // между «PlayerJS сообщил, что играет» и фуллскрином проходит ещё один опрос,
+            // и в этот промежуток из-под заставки показывался постер
+            val ready = if (autoplayPending) player.isFullscreen else state == "ready"
+            val limit = if (autoplayPending) AUTOPLAY_TIMEOUT_MS else LOADING_TIMEOUT_MS
+            when {
+                ready && autoplayPending -> {
+                    // Режим переключается раньше, чем WebView дорисует растянутый плеер,
+                    // поэтому снимаем заставку на кадр позже — иначе мелькает шапка сайта
+                    val since = loadingSince
+                    webView.postDelayed({ if (loadingSince == since) hideLoading() }, FULLSCREEN_RENDER_MS)
+                }
+                ready -> hideLoading()
+                System.currentTimeMillis() - loadingSince > limit -> hideLoading()
+                else -> webView.postDelayed({ awaitContentReady() }, LOADING_POLL_MS)
+            }
+        }
+    }
+
+    /** Убрать подсказку об управлении; больше она сама не появится. */
+    private fun hideHint() {
+        hintOverlay.visibility = View.GONE
+        prefs.edit().putBoolean(KEY_HINT_SHOWN, true).apply()
+        webView.requestFocus()
     }
 
     private fun closeMenu() {
@@ -294,6 +409,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Подсказка об управлении гасится любой кнопкой и эту кнопку поглощает
+        if (hintOverlay.visibility == View.VISIBLE) {
+            if (event.action == KeyEvent.ACTION_UP) hideHint()
+            return true
+        }
+        // Остаток того самого долгого нажатия, которым открыли панель, до её пунктов не доходит
+        if (menuPanel.isOpen && isOkKey(event) && System.currentTimeMillis() < menuGuardUntil) return true
         // Видео на весь экран: все кнопки обрабатывает обёртка плеера
         if (player.handleKey(event)) return true
         if (player.isFullscreen) return super.dispatchKeyEvent(event)
@@ -342,7 +464,8 @@ class MainActivity : AppCompatActivity() {
 
     /** Режим стрелок: стрелки выбирают элементы страницы, OK нажимает выбранный (на отпускании). */
     private fun handleSpatialNav(event: KeyEvent): Boolean {
-        if (menuPanel.isOpen || errorView.visibility == View.VISIBLE) return false
+        // Пока открыта библиотека, кнопками распоряжается она сама (обычный фокус по карточкам)
+        if (library.isOpen || menuPanel.isOpen || errorView.visibility == View.VISIBLE) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -357,10 +480,7 @@ class MainActivity : AppCompatActivity() {
             if (down) spatialNav.move(dir)
             return true
         }
-        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
-                event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC)
-        if (isOk) {
+        if (isOkKey(event)) {
             // Долгое нажатие перехватывает handleLongOk — сюда доходит только короткое
             if (!down) spatialNav.activate()
             return true
@@ -368,17 +488,24 @@ class MainActivity : AppCompatActivity() {
         return false
     }
 
+    /**
+     * OK с пульта. Enter с полноценной клавиатуры сюда не относится — его отдаём странице,
+     * иначе ломается набор текста.
+     */
+    private fun isOkKey(event: KeyEvent) = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+        ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
+            event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+
     /** Долгое нажатие OK открывает панель разделов (на многих пультах нет кнопки Menu). */
     private fun handleLongOk(event: KeyEvent): Boolean {
-        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
-                event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC) // удержание Enter при наборе текста
-        if (!isOk) return false
+        if (!isOkKey(event)) return false
         if (swallowOk) {
             if (event.action == KeyEvent.ACTION_UP) swallowOk = false
             return true
         }
         val longPress = event.isLongPress || event.repeatCount >= LONG_PRESS_REPEATS
+        // В библиотеке долгое OK убирает карточку из списка, панель разделов туда не вмешивается
+        if (library.isOpen) return false
         if (event.action == KeyEvent.ACTION_DOWN && longPress && !menuPanel.isOpen && customView == null) {
             swallowOk = true
             openMenu()
@@ -430,6 +557,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        posters.shutdown()
         player.release() // снять отложенные задачи, пока WebView ещё прикреплён
         exitFullscreen()
         (webView.parent as? ViewGroup)?.removeView(webView)
@@ -441,7 +569,34 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"
+        private const val KEY_HINT_SHOWN = "hint_shown"
+        private const val LOADING_POLL_MS = 120L
+        private const val LOADING_TIMEOUT_MS = 6000L
+        private const val AUTOPLAY_TIMEOUT_MS = 15_000L // столько же ждёт автозапуск в PLAYER_JS
+        // Запас на отрисовку: мало дождаться смены режима — WebView ещё скрывает соседние блоки
+        // страницы и рисует оверлей, и без запаса поверх плеера на кадр мелькает шапка сайта
+        private const val FULLSCREEN_RENDER_MS = 700L
+
+        /**
+         * Что показывать вместо страницы: `ready` — всё готово; `autoplay` — выбрана серия,
+         * ждём начала воспроизведения (иначе мелькнёт постер, и лишь потом откроется плеер);
+         * `loading` — документ, шрифты или виджеты фильтров ещё не готовы.
+         */
+        private const val CONTENT_READY_JS = """
+(function(){
+  try { if (sessionStorage.getItem('__foxautoplay') === '1') return 'autoplay'; } catch (e) {}
+  if (document.readyState !== 'complete') return 'loading';
+  if (document.fonts && document.fonts.status !== 'loaded') return 'loading';
+  var selects = document.querySelectorAll('select').length;
+  if (selects > 0 && document.querySelectorAll('.ss-main').length === 0) return 'loading';
+  return 'ready';
+})()
+"""
         private const val LONG_PRESS_REPEATS = 10
+        private const val MENU_GUARD_MS = 600L // окно, в котором OK не доходит до пунктов панели
+        // Даём странице дорисоваться после onPageFinished; вторая попытка — для блоков,
+        // которые подгружаются позже (iframe проверки «я не робот»)
+        private val AUTOFOCUS_DELAYS_MS = listOf(350L, 1800L)
         private val HANDLED_MEDIA_KEYS = setOf(
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,

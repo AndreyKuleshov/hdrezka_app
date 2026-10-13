@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Текст на элементе с фокусом: белый на оранжевой заливке даёт контраст 2.87:1 (норма 4.5:1),
+     тёмный на той же заливке — 6.5:1. Фокус для пульта должен читаться с 3 метров. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="#141418" />
+    <item android:color="#FFFFFF" />
+</selector>
