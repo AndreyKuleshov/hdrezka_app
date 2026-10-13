@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Карточка сериала: обложка, полоска просмотра, название и место остановки -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="170dp"
+    android:layout_width="150dp"
     android:layout_height="wrap_content"
     android:layout_marginEnd="16dp"
     android:background="@drawable/card_bg"
@@ -12,14 +12,14 @@
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="230dp">
+        android:layout_height="200dp">
 
         <ImageView
             android:id="@+id/cardPoster"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="#242227"
-            android:contentDescription="@string/library_continue"
+            android:importantForAccessibility="no"
             android:scaleType="centerCrop" />
 
         <ProgressBar
@@ -50,5 +50,5 @@
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="#CCFFFFFF"
-        android:textSize="16sp" />
+        android:textSize="18sp" />
 </LinearLayout>

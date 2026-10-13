@@ -28,9 +28,7 @@
     <string name="library_saved">Saved</string>
     <string name="library_empty">Nothing here yet</string>
     <string name="library_forget">Hold OK to remove</string>
-    <string name="menu_saved">Saved shows</string>
-    <string name="fav_add">★ Save for later</string>
-    <string name="fav_remove">★ Saved</string>
+    <string name="menu_library">Continue watching</string>
     <!-- Подсказка при первом запуске: без неё о долгом OK и перемотке узнать неоткуда -->
     <string name="hint_title">Remote control</string>
     <string name="hint_body">OK — open the selected item\nHold OK — sections panel\nEye in the header — continue watching and saved shows\nBack — go back, twice on home to exit\nUp in player — scrub the timeline\nPlay/Pause — pause the episode</string>
@@ -51,7 +49,6 @@
     <string name="update_permission">Allow installing apps from Fox TV, then press Update again</string>
     <!-- Подписи значков контролов для экранного диктора (на экране не показываются) -->
     <string name="cd_prev_episode">Previous episode</string>
-    <string name="cd_next_episode">Next episode</string>
     <string name="cd_back_10">Back 10 seconds</string>
     <string name="cd_forward_10">Forward 10 seconds</string>
     <string name="cd_play_pause">Play or pause</string>
