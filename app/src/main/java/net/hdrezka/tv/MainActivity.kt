@@ -1,7 +1,10 @@
 package net.hdrezka.tv
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
@@ -327,6 +330,10 @@ class MainActivity : AppCompatActivity() {
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
             add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); hintOverlay.visibility = View.VISIBLE })
             add(MenuPanel.Action(getString(R.string.menu_update)) { closeMenu(); checkUpdates(manual = true) })
+            // Копия библиотеки переживает удаление приложения: только так историю и отложенные
+            // можно вернуть после переустановки
+            add(MenuPanel.Action(getString(R.string.menu_export)) { closeMenu(); exportLibrary() })
+            add(MenuPanel.Action(getString(R.string.menu_import)) { closeMenu(); importLibrary() })
             // Справочная строка перед настройкой режима: её не выбрать, она просто сообщает версию
             add(MenuPanel.Action(getString(R.string.menu_version, BuildConfig.VERSION_NAME)))
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
@@ -379,6 +386,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+    /** Выгрузить историю и отложенные в «Загрузки» — папку, которая переживёт переустановку. */
+    private fun exportLibrary() {
+        if (!ensureStorageAccess(REQUEST_EXPORT)) return
+        store.flush()
+        val path = LibraryBackup.export(this, store)
+        if (path != null) toast(getString(R.string.backup_saved, path)) else toast(R.string.backup_failed)
+    }
+
+    /** Влить копию из «Загрузок». Записи сливаются по сериалу, ничего не стирается. */
+    private fun importLibrary() {
+        if (!ensureStorageAccess(REQUEST_IMPORT)) return
+        when (val loaded = LibraryBackup.import(this, store)) {
+            0 -> toast(getString(R.string.backup_none, LibraryBackup.FILE_NAME))
+            -1 -> toast(R.string.backup_failed)
+            else -> {
+                toast(getString(R.string.backup_loaded, loaded))
+                webView.evaluateJavascript(FoxBridge.libraryJs(bridge.currentKey()), null)
+            }
+        }
+    }
+
+    /**
+     * До Android 10 запись в «Загрузки» требует разрешения; на 10 и новее доступ даёт MediaStore.
+     * Возвращает false, если разрешение ещё спрашивается, — действие повторится в ответе.
+     */
+    private fun ensureStorageAccess(code: Int): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val permission = Manifest.permission.WRITE_EXTERNAL_STORAGE
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return true
+        requestPermissions(arrayOf(permission), code)
+        return false
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
+            if (requestCode == REQUEST_EXPORT || requestCode == REQUEST_IMPORT) toast(R.string.backup_failed)
+            return
+        }
+        when (requestCode) {
+            REQUEST_EXPORT -> exportLibrary()
+            REQUEST_IMPORT -> importLibrary()
+        }
+    }
 
     /**
      * Открыть из библиотеки. Недосмотренная серия ([play]) запускается сразу с сохранённого места,
@@ -677,6 +735,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val REQUEST_EXPORT = 1
+        private const val REQUEST_IMPORT = 2
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"

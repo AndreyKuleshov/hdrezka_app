@@ -6,6 +6,11 @@
     <!-- Обновление приложения из него самого: APK ставится системным установщиком -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Резервная копия библиотеки в «Загрузках». На Android 10 и новее туда пишет MediaStore,
+         разрешение там не спрашивается и не действует -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 

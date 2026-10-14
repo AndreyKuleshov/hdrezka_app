@@ -178,24 +178,62 @@ class WatchStore(context: Context) {
         if (dirty.isEmpty()) return
         lastSaveAt = System.currentTimeMillis()
         val edit = prefs.edit()
-        dirty.forEach { key ->
-            val arr = JSONArray()
-            cache[key].orEmpty().forEach { s ->
-                val o = JSONObject()
-                    .put("u", s.url).put("t", s.title).put("p", s.poster).put("at", s.at)
-                s.last?.let { e ->
-                    o.put(
-                        "ep", JSONObject().put("s", e.season).put("e", e.episode)
-                            .put("url", e.url).put("pos", e.pos).put("dur", e.dur)
-                    )
-                }
-                if (s.seen.isNotEmpty()) o.put("seen", JSONArray(s.seen.toList()))
-                arr.put(o)
-            }
-            edit.putString(key, arr.toString())
-        }
+        dirty.forEach { key -> edit.putString(key, toArray(cache[key].orEmpty()).toString()) }
         dirty.clear()
         edit.apply()
+    }
+
+    private fun toJson(s: Show): JSONObject {
+        val o = JSONObject().put("u", s.url).put("t", s.title).put("p", s.poster).put("at", s.at)
+        s.last?.let { e ->
+            o.put(
+                "ep", JSONObject().put("s", e.season).put("e", e.episode)
+                    .put("url", e.url).put("pos", e.pos).put("dur", e.dur)
+            )
+        }
+        if (s.seen.isNotEmpty()) o.put("seen", JSONArray(s.seen.toList()))
+        return o
+    }
+
+    private fun toArray(list: List<Show>): JSONArray =
+        JSONArray().also { arr -> list.forEach { arr.put(toJson(it)) } }
+
+    // --- Резервная копия ---
+
+    /** Вся библиотека одним JSON — её [LibraryBackup] кладёт в файл. */
+    @Synchronized
+    fun exportJson(): String = JSONObject()
+        .put("v", BACKUP_VERSION)
+        .put(KEY_HISTORY, toArray(read(KEY_HISTORY)))
+        .put(KEY_FAVORITES, toArray(read(KEY_FAVORITES)))
+        .toString()
+
+    /**
+     * Влить резервную копию. Сериалы сливаются по адресу, побеждает более свежая запись:
+     * импорт на устройстве, где уже смотрели, не должен откатывать прогресс назад.
+     * Просмотренные серии объединяются из обеих записей. Возвращает число записей в копии
+     * или -1, если файл не похож на нашу копию.
+     */
+    @Synchronized
+    fun importJson(json: String): Int {
+        val o = try { JSONObject(json) } catch (e: Exception) { return -1 }
+        if (!o.has(KEY_HISTORY) && !o.has(KEY_FAVORITES)) return -1
+        var count = 0
+        listOf(KEY_HISTORY to MAX_HISTORY, KEY_FAVORITES to MAX_FAVORITES).forEach { (key, limit) ->
+            val arr = o.optJSONArray(key) ?: JSONArray()
+            val incoming = (0 until arr.length()).mapNotNull { parse(arr.optJSONObject(it)) }
+            count += incoming.size
+            val merged = LinkedHashMap<String, Show>()
+            read(key).forEach { merged[it.url] = it }
+            incoming.forEach { s ->
+                val old = merged[s.url]
+                val seen = s.seen + old?.seen.orEmpty()
+                merged[s.url] = if (old != null && old.at > s.at) old.copy(seen = seen) else s.copy(seen = seen)
+            }
+            write(key, merged.values.toList(), limit)
+        }
+        persist() // импорт — явное действие, его результат на диск кладём сразу
+        return count
     }
 
     private fun parse(o: JSONObject?): Show? {
@@ -222,6 +260,7 @@ class WatchStore(context: Context) {
         private const val MAX_FAVORITES = 100
         private const val SAVE_INTERVAL_MS = 60_000L // чаще раза в минуту на диск не ходим
         private const val SEEN_FRACTION = 0.9 // дальше этого считаем серию просмотренной
+        private const val BACKUP_VERSION = 1
 
         /**
          * Адрес сериала из адреса серии: у сайта это первые три сегмента пути

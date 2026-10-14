@@ -40,6 +40,12 @@
     <!-- Обновление приложения из GitHub Releases -->
     <string name="menu_version">Version %1$s</string>
     <string name="menu_update">Check for updates</string>
+    <string name="menu_export">Export library</string>
+    <string name="menu_import">Import library</string>
+    <string name="backup_saved">Library saved to %1$s</string>
+    <string name="backup_loaded">Loaded %1$d entries from backup</string>
+    <string name="backup_none">No %1$s in Download folder</string>
+    <string name="backup_failed">Could not access Download folder</string>
     <string name="update_checking">Checking for updates…</string>
     <string name="update_none">You have the latest version</string>
     <string name="update_title">Update available</string>
