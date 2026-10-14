@@ -11,8 +11,8 @@ android {
         applicationId = "net.hdrezka.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
         buildConfigField("String", "START_URL", "\"https://serialy-fox-hdrezka.net/\"")
         // Откуда приложение берёт обновления: публичные GitHub Releases этого репозитория
         buildConfigField("String", "UPDATE_REPO", "\"AndreyKuleshov/hdrezka_app\"")
