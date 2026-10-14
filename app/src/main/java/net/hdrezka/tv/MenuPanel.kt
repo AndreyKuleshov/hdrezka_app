@@ -1,6 +1,5 @@
 package net.hdrezka.tv
 
-import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
@@ -72,23 +71,27 @@ class MenuPanel(
 
     private fun dp(v: Int) = (v * density).toInt()
 
+    /** Кегль из общей шкалы: dimen задан в sp, поэтому ставим его как готовый размер в пикселях. */
+    private fun TextView.textSize(dimen: Int) =
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(dimen))
+
     private fun header(text: String) = TextView(panel.context).apply {
         this.text = text
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+        setTextColor(ContextCompat.getColor(panel.context, R.color.text_primary))
+        textSize(R.dimen.text_title)
         typeface = Typeface.DEFAULT_BOLD
         setPadding(dp(16), 0, dp(16), dp(16))
     }
 
     private fun note(text: String) = TextView(panel.context).apply {
         this.text = text
-        setTextColor(Color.LTGRAY)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f) // минимум для основного текста на 1080p ТВ
+        setTextColor(ContextCompat.getColor(panel.context, R.color.text_muted))
+        textSize(R.dimen.text_label)
         setPadding(dp(16), dp(8), dp(16), dp(8))
     }
 
     private fun divider() = View(panel.context).apply {
-        setBackgroundColor(0x33FFFFFF)
+        setBackgroundColor(ContextCompat.getColor(panel.context, R.color.surface_divider))
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
             setMargins(dp(16), dp(12), dp(16), dp(12))
         }
@@ -98,7 +101,7 @@ class MenuPanel(
         this.text = text
         // В фокусе пункт заливается оранжевым: белый текст на нём даёт 2.87:1, тёмный — 6.5:1
         setTextColor(ContextCompat.getColorStateList(panel.context, R.color.focus_text))
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (level == 0) 20f else 18f)
+        textSize(if (level == 0) R.dimen.text_body else R.dimen.text_label)
         if (level > 0) alpha = 0.85f
         gravity = Gravity.CENTER_VERTICAL
         minHeight = dp(48)

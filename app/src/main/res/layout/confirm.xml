@@ -4,7 +4,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#E6000000"
+    android:background="@color/surface_scrim"
     android:visibility="gone">
 
     <LinearLayout
@@ -20,8 +20,8 @@
             android:id="@+id/confirmTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
-            android:textSize="26sp"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_title"
             android:textStyle="bold" />
 
         <TextView
@@ -29,8 +29,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:textColor="#CCFFFFFF"
-            android:textSize="20sp" />
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_body" />
 
         <LinearLayout
             android:layout_width="wrap_content"

@@ -18,7 +18,7 @@
             android:id="@+id/cardPoster"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#242227"
+            android:background="@color/surface_card"
             android:importantForAccessibility="no"
             android:scaleType="centerCrop" />
 
@@ -39,8 +39,8 @@
         android:layout_marginTop="10dp"
         android:ellipsize="end"
         android:maxLines="2"
-        android:textColor="#FFFFFF"
-        android:textSize="18sp" />
+        android:textColor="@color/text_primary"
+        android:textSize="@dimen/text_label" />
 
     <TextView
         android:id="@+id/cardSubtitle"
@@ -49,6 +49,6 @@
         android:layout_marginTop="2dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="#CCFFFFFF"
-        android:textSize="18sp" />
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/text_label" />
 </LinearLayout>

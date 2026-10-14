@@ -1,0 +1,16 @@
+<resources>
+    <color name="accent">#FF6A00</color>
+
+    <!-- Четыре поверхности: экран приложения, затемнение под вопросом, панель поверх страницы
+         и карточка внутри неё. Раньше почти чёрных фонов было четыре штуки разной прозрачности -->
+    <color name="surface_screen">#000000</color>
+    <color name="surface_scrim">#E6000000</color>
+    <color name="surface_panel">#141418</color>
+    <color name="surface_card">#242227</color>
+
+    <!-- Три уровня текста на тёмном фоне -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#CCFFFFFF</color>
+    <color name="text_muted">#99FFFFFF</color>
+    <color name="surface_divider">#33FFFFFF</color>
+</resources>

@@ -1,0 +1,8 @@
+<resources>
+    <!-- Шкала кеглей для экрана 1080p с расстояния дивана: четыре ступени, мельче 18sp
+         текст на телевизоре уже не читается. Промежуточные 20sp и 24sp сведены к соседям -->
+    <dimen name="text_display">34sp</dimen>
+    <dimen name="text_title">26sp</dimen>
+    <dimen name="text_body">22sp</dimen>
+    <dimen name="text_label">18sp</dimen>
+</resources>
