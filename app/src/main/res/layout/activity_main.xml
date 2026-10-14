@@ -4,7 +4,7 @@
     android:id="@+id/cursorLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black">
+    android:background="@color/surface_screen">
 
     <WebView
         android:id="@+id/webView"
@@ -21,18 +21,18 @@
         android:layout_gravity="top"
         android:layout_marginTop="27dp"
         android:max="100"
-        android:progressTint="#FF6A00" />
+        android:progressTint="@color/accent" />
 
     <TextView
         android:id="@+id/errorView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="#CC000000"
+        android:background="@color/surface_panel"
         android:padding="24dp"
         android:text="@string/load_error"
-        android:textColor="#FFFFFF"
-        android:textSize="22sp"
+        android:textColor="@color/text_primary"
+        android:textSize="@dimen/text_body"
         android:visibility="gone" />
 
     <!-- Панель разделов: открывается кнопкой Menu или долгим нажатием OK -->
@@ -41,7 +41,7 @@
         android:layout_width="400dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="#F2141418"
+        android:background="@color/surface_panel"
         android:elevation="8dp"
         android:fillViewport="true"
         android:visibility="gone">
@@ -64,7 +64,7 @@
         android:id="@+id/fullscreenContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/black"
+        android:background="@color/surface_screen"
         android:visibility="gone" />
 
     <!-- Экран плеера поверх видео на весь экран: заголовок, прогресс, кнопки, качество, «следующая серия» -->
@@ -93,16 +93,16 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#FFFFFF"
-                android:textSize="26sp"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_title"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/playerEpisode"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#CCFFFFFF"
-                android:textSize="18sp" />
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_label" />
         </LinearLayout>
 
         <TextView
@@ -119,8 +119,8 @@
             android:paddingEnd="16dp"
             android:paddingTop="8dp"
             android:paddingBottom="8dp"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_label"
             android:visibility="gone" />
 
         <LinearLayout
@@ -145,8 +145,8 @@
                     android:id="@+id/playerTime"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp" />
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/text_label" />
 
                 <!-- Вверх из кнопок — режим перемотки: точка на полосе, влево/вправо по минуте -->
                 <SeekBar
@@ -169,8 +169,8 @@
                     android:id="@+id/playerDuration"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp" />
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/text_label" />
             </LinearLayout>
 
             <LinearLayout
@@ -238,8 +238,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingBottom="12dp"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp" />
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_body" />
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -254,9 +254,13 @@
 
     <!-- Библиотека: продолжить просмотр и отложенные сериалы. Ниже заставки и подсказки,
          но выше страницы — открывается поверх сайта -->
-    <include
-        android:id="@+id/libraryScreen"
-        layout="@layout/library" />
+    <!-- Экраны поверх страницы разворачиваются при первом обращении: обычный просмотр
+         сериалов их не трогает, и памяти они до тех пор не занимают -->
+    <ViewStub
+        android:id="@+id/libraryStub"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout="@layout/library" />
 
     <!-- Заставка на время загрузки: сайт успевает показать фильтры без надписей, пока SlimSelect
          не отработал и не догрузились шрифты. Снимается по готовности содержимого, не по onPageFinished -->
@@ -264,7 +268,7 @@
         android:id="@+id/loadingOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/black"
+        android:background="@color/surface_screen"
         android:gravity="center"
         android:orientation="vertical"
         android:visibility="gone">
@@ -273,57 +277,26 @@
             android:layout_width="64dp"
             android:layout_height="64dp"
             android:indeterminate="true"
-            android:indeterminateTint="#FF6A00" />
+            android:indeterminateTint="@color/accent" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/loading"
-            android:textColor="#CCFFFFFF"
-            android:textSize="20sp" />
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_body" />
     </LinearLayout>
 
-    <include
-        android:id="@+id/confirmOverlay"
-        layout="@layout/confirm" />
-
-    <!-- Подсказка об управлении при первом запуске: о долгом OK и перемотке узнать больше неоткуда.
-         Гасится любой кнопкой пульта и больше не показывается -->
-    <LinearLayout
-        android:id="@+id/hintOverlay"
+    <ViewStub
+        android:id="@+id/confirmStub"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#000000"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:paddingStart="48dp"
-        android:paddingEnd="48dp"
-        android:visibility="gone">
+        android:layout="@layout/confirm" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/hint_title"
-            android:textColor="#FF6A00"
-            android:textSize="34sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:lineSpacingExtra="10dp"
-            android:text="@string/hint_body"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/hint_dismiss"
-            android:textColor="#CCFFFFFF"
-            android:textSize="18sp" />
-    </LinearLayout>
+    <ViewStub
+        android:id="@+id/hintStub"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout="@layout/hint" />
 </net.hdrezka.tv.CursorLayout>

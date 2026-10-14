@@ -11,8 +11,10 @@ import android.os.Message
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewStub
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -26,6 +28,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -38,11 +41,47 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var fullscreenContainer: FrameLayout
-    private lateinit var hintOverlay: View
     private lateinit var loadingOverlay: View
-    private lateinit var library: LibraryScreen
-    private lateinit var confirm: ConfirmOverlay
-    private val posters by lazy { PosterCache(this) }
+
+    // Экраны поверх страницы разворачиваются при первом обращении, поэтому держим их отдельно
+    // от проверок «открыт ли»: иначе первая же кнопка пульта создавала бы их все
+    private var libraryOrNull: LibraryScreen? = null
+    private var confirmOrNull: ConfirmOverlay? = null
+    private var hintView: View? = null
+    private val postersLazy = lazy { PosterCache(this) }
+    private val posters by postersLazy
+
+    private val library: LibraryScreen
+        get() = libraryOrNull ?: LibraryScreen(
+            findViewById<ViewStub>(R.id.libraryStub).inflate(), store, posters,
+            onOpen = { url, play -> openFromLibrary(url, play) },
+            // Долгое OK везде открывает панель, а тут стирало прогресс: спрашиваем
+            onConfirmRemove = { name, remove ->
+                confirm.ask(
+                    getString(R.string.confirm_remove_title),
+                    getString(R.string.confirm_remove_text, name),
+                    getString(R.string.confirm_remove_yes),
+                    getString(R.string.confirm_cancel),
+                    remove,
+                )
+            },
+        ).also { libraryOrNull = it }
+
+    private val libraryOpen get() = libraryOrNull?.isOpen == true
+
+    private val confirm: ConfirmOverlay
+        get() = confirmOrNull
+            ?: ConfirmOverlay(findViewById<ViewStub>(R.id.confirmStub).inflate())
+                .also { confirmOrNull = it }
+
+    private val confirmOpen get() = confirmOrNull?.isOpen == true
+
+    private val hintVisible get() = hintView?.visibility == View.VISIBLE
+
+    private fun showHint() {
+        val view = hintView ?: findViewById<ViewStub>(R.id.hintStub).inflate().also { hintView = it }
+        view.visibility = View.VISIBLE
+    }
     private var loadingSince = 0L
     /** Номер загрузки: ответы опроса готовности от прежней страницы отбрасываются. */
     private var loadGeneration = 0
@@ -83,25 +122,14 @@ class MainActivity : AppCompatActivity() {
         progress = findViewById(R.id.progress)
         errorView = findViewById(R.id.errorView)
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
-        hintOverlay = findViewById(R.id.hintOverlay)
         loadingOverlay = findViewById(R.id.loadingOverlay)
-        confirm = ConfirmOverlay(findViewById(R.id.confirmOverlay))
-        library = LibraryScreen(
-            findViewById(R.id.libraryScreen), store, posters,
-            onOpen = { url, play -> openFromLibrary(url, play) },
-            // Долгое OK везде открывает панель, а тут стирало прогресс: спрашиваем
-            onConfirmRemove = { name, remove ->
-                confirm.ask(
-                    getString(R.string.confirm_remove_title),
-                    getString(R.string.confirm_remove_text, name),
-                    getString(R.string.confirm_remove_yes),
-                    getString(R.string.confirm_cancel),
-                    remove,
-                )
-            },
-        )
+        // Прошлый сеанс оборвался из-за нехватки памяти — объясняем, почему видео встало
+        if (prefs.getBoolean(KEY_RENDERER_GONE, false)) {
+            prefs.edit().putBoolean(KEY_RENDERER_GONE, false).apply()
+            toast(R.string.renderer_restarted)
+        }
         // Первый запуск: показываем, какие кнопки что делают, — иначе о долгом OK не узнать
-        if (!prefs.getBoolean(KEY_HINT_SHOWN, false)) hintOverlay.visibility = View.VISIBLE
+        if (!prefs.getBoolean(KEY_HINT_SHOWN, false)) showHint()
         menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
         sections = MenuPanel.parse(prefs.getString(KEY_SECTIONS, null))
 
@@ -195,6 +223,28 @@ class MainActivity : AppCompatActivity() {
                 CookieManager.getInstance().flush()
             }
 
+            /**
+             * Процесс отрисовки WebView система может убить сама — на приставке памяти мало,
+             * особенно пока идёт видео. Если этого не перехватить, приложение умирает вместе
+             * с ним, и остаётся только запускать его заново руками. Поэтому сохраняем место
+             * в серии и поднимаем экран сами: страница и позиция восстановятся.
+             */
+            @RequiresApi(Build.VERSION_CODES.O)
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                // Чтобы причина была видна и без отладчика: при следующем запуске скажем об этом
+                prefs.edit().putBoolean(KEY_RENDERER_GONE, true).apply()
+                try {
+                    player.onBackground() // позиция известна из последнего опроса — пишем её на диск
+                    player.release()
+                } catch (e: Exception) {
+                    // WebView уже мёртв: записать позицию не вышло, но экран всё равно поднимаем
+                }
+                (view.parent as? ViewGroup)?.removeView(view)
+                view.destroy()
+                if (!isFinishing && !isDestroyed) recreate()
+                return true
+            }
+
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
                     errorView.visibility = View.VISIBLE
@@ -258,8 +308,8 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             when {
-                confirm.isOpen -> confirm.close()
-                library.isOpen -> { library.close(); webView.requestFocus() }
+                confirmOpen -> confirmOrNull?.close()
+                libraryOpen -> { libraryOrNull?.close(); webView.requestFocus() }
                 menuPanel.isOpen -> closeMenu()
                 customView != null -> exitFullscreen()
                 player.handleBack() -> Unit
@@ -329,7 +379,7 @@ class MainActivity : AppCompatActivity() {
             add(MenuPanel.Action(getString(R.string.menu_library)) { openLibrary() })
             if (webView.canGoBack()) add(MenuPanel.Action(getString(R.string.menu_back)) { closeMenu(); webView.goBack() })
             add(MenuPanel.Action(getString(R.string.menu_reload)) { closeMenu(); webView.reload() })
-            add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); hintOverlay.visibility = View.VISIBLE })
+            add(MenuPanel.Action(getString(R.string.menu_hint)) { closeMenu(); showHint() })
             add(MenuPanel.Action(getString(R.string.menu_update)) { closeMenu(); checkUpdates(manual = true) })
             // Копия библиотеки переживает удаление приложения: только так историю и отложенные
             // можно вернуть после переустановки
@@ -449,7 +499,7 @@ class MainActivity : AppCompatActivity() {
     private fun openFromLibrary(url: String, play: Boolean) {
         // В библиотеку могла попасть запись с чужим адресом — открываем только страницы сайта
         if (!isSameSite(Uri.parse(url))) return
-        library.close()
+        libraryOrNull?.close()
         if (play) {
             autoplayRequested = true
             player.playOnNextPage()
@@ -515,7 +565,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Убрать подсказку об управлении; больше она сама не появится. */
     private fun hideHint() {
-        hintOverlay.visibility = View.GONE
+        hintView?.visibility = View.GONE
         prefs.edit().putBoolean(KEY_HINT_SHOWN, true).apply()
         webView.requestFocus()
     }
@@ -576,7 +626,7 @@ class MainActivity : AppCompatActivity() {
             event.keyCode != KeyEvent.KEYCODE_MENU && event.keyCode != KeyEvent.KEYCODE_SETTINGS
         ) lastKey = event.keyCode
         // Подсказка об управлении гасится любой кнопкой и эту кнопку поглощает
-        if (hintOverlay.visibility == View.VISIBLE) {
+        if (hintVisible) {
             if (event.action == KeyEvent.ACTION_UP) hideHint()
             return true
         }
@@ -635,7 +685,7 @@ class MainActivity : AppCompatActivity() {
     /** Режим стрелок: стрелки выбирают элементы страницы, OK нажимает выбранный (на отпускании). */
     private fun handleSpatialNav(event: KeyEvent): Boolean {
         // Пока открыты библиотека или вопрос, кнопками распоряжаются они сами (обычный фокус)
-        if (confirm.isOpen || library.isOpen || menuPanel.isOpen ||
+        if (confirmOpen || libraryOpen || menuPanel.isOpen ||
             errorView.visibility == View.VISIBLE
         ) return false
         val down = event.action == KeyEvent.ACTION_DOWN
@@ -677,7 +727,7 @@ class MainActivity : AppCompatActivity() {
         }
         val longPress = event.isLongPress || event.repeatCount >= LONG_PRESS_REPEATS
         // В библиотеке долгое OK убирает карточку из списка, панель разделов туда не вмешивается
-        if (library.isOpen || confirm.isOpen) return false
+        if (libraryOpen || confirmOpen) return false
         if (event.action == KeyEvent.ACTION_DOWN && longPress && !menuPanel.isOpen && customView == null) {
             swallowOk = true
             openMenu()
@@ -713,6 +763,12 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
+    }
+
+    /** Память кончается — первыми отдаём обложки: их недолго скачать заново. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW && postersLazy.isInitialized()) posters.trimMemory()
     }
 
     override fun onPause() {
@@ -759,6 +815,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"
+        private const val KEY_RENDERER_GONE = "renderer_gone"
         private const val KEY_HINT_SHOWN = "hint_shown"
         private const val KEY_UPDATE_CHECKED = "update_checked"
         private const val UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000L // раз в сутки
