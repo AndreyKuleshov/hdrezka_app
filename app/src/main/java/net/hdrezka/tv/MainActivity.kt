@@ -8,7 +8,6 @@ import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
-import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -61,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     /** До этого момента OK не доходит до панели: иначе отпускание нажимает её первый пункт. */
     private var menuGuardUntil = 0L
     private lateinit var bridge: FoxBridge
+    /** Код последней нажатой кнопки пульта — показывается в панели для разбора проблем с «OK». */
+    private var lastKey = 0
     private lateinit var spatialNav: SpatialNav
     private lateinit var player: PlayerController
 
@@ -334,8 +335,11 @@ class MainActivity : AppCompatActivity() {
             // можно вернуть после переустановки
             add(MenuPanel.Action(getString(R.string.menu_export)) { closeMenu(); exportLibrary() })
             add(MenuPanel.Action(getString(R.string.menu_import)) { closeMenu(); importLibrary() })
-            // Справочная строка перед настройкой режима: её не выбрать, она просто сообщает версию
+            // Справочные строки перед настройкой режима: их не выбрать, они просто сообщают
             add(MenuPanel.Action(getString(R.string.menu_version, BuildConfig.VERSION_NAME)))
+            if (lastKey != 0) {
+                add(MenuPanel.Action(getString(R.string.menu_last_key, KeyEvent.keyCodeToString(lastKey), lastKey)))
+            }
             val modeTitle = if (cursorLayout.cursorEnabled) R.string.menu_cursor_on else R.string.menu_cursor_off
             add(MenuPanel.Action(getString(modeTitle)) { closeMenu(); toggleCursor() })
         }
@@ -566,6 +570,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Кнопками панели пульты не отличаются, а вот «OK» шлют по-разному: запоминаем код,
+        // чтобы его можно было увидеть в панели, когда нажатие не срабатывает
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode != KeyEvent.KEYCODE_MENU && event.keyCode != KeyEvent.KEYCODE_SETTINGS
+        ) lastKey = event.keyCode
         // Подсказка об управлении гасится любой кнопкой и эту кнопку поглощает
         if (hintOverlay.visibility == View.VISIBLE) {
             if (event.action == KeyEvent.ACTION_UP) hideHint()
@@ -655,9 +664,9 @@ class MainActivity : AppCompatActivity() {
      * OK с пульта. Enter с полноценной клавиатуры сюда не относится — его отдаём странице,
      * иначе ломается набор текста.
      */
-    private fun isOkKey(event: KeyEvent) = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+    private fun isOkKey(event: KeyEvent) = event.keyCode in OK_KEYS ||
         ((event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
-            event.device?.keyboardType != InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+            !bridge.editing)
 
     /** Долгое нажатие OK открывает панель разделов (на многих пультах нет кнопки Menu). */
     private fun handleLongOk(event: KeyEvent): Boolean {
@@ -735,6 +744,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * Что считается кнопкой «OK». Enter добавляется отдельно: раньше он отбрасывался,
+         * если пульт объявлял себя полноценной клавиатурой, — но так объявляются и ТВ-пульты
+         * с голосовым вводом, и «OK» у них переставал работать совсем.
+         */
+        private val OK_KEYS = setOf(
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_BUTTON_SELECT,
+        )
         private const val REQUEST_EXPORT = 1
         private const val REQUEST_IMPORT = 2
         private const val KEY_LAST_URL = "last_url"

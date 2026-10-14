@@ -25,7 +25,18 @@ class FoxBridge(
      */
     private var key = ""
 
-    fun newKey(): String = java.util.UUID.randomUUID().toString().also { key = it }
+    /**
+     * Идёт ли на странице ввод текста. При нём Enter достаётся ей, а не считается нажатием OK:
+     * иначе в поиске нельзя было бы подтвердить запрос.
+     */
+    @Volatile
+    var editing = false
+        private set
+
+    fun newKey(): String = java.util.UUID.randomUUID().toString().also {
+        key = it
+        editing = false // новая страница — прежний фокус в поле ввода уже не в счёт
+    }
 
     /**
      * Ключ текущей страницы. При повторном внедрении скрипта на той же странице новый ключ выдавать
@@ -43,6 +54,11 @@ class FoxBridge(
     @JavascriptInterface
     fun openMenu(k: String) {
         if (allowed(k)) onOpenMenu()
+    }
+
+    @JavascriptInterface
+    fun setEditing(k: String, value: Boolean) {
+        if (allowed(k)) editing = value
     }
 
     @JavascriptInterface
@@ -195,6 +211,23 @@ class FoxBridge(
         (ss > 10 ? ' · ' + at : '');
     }
   } catch (e) {}
+
+  // Пульты, которые шлют Enter вместо «OK», не должны мешать набору текста: пока фокус
+  // в поле ввода, приложение отдаёт Enter странице
+  function editing() {
+    var e = document.activeElement;
+    if (!e) return false;
+    var t = (e.tagName || '').toUpperCase();
+    return t === 'INPUT' || t === 'TEXTAREA' || e.isContentEditable === true;
+  }
+  function reportEditing() { try { FoxApp.setEditing(K, editing()); } catch (e) {} }
+  if (!window.__foxediting) {
+    window.__foxediting = 1;
+    document.addEventListener('focusin', reportEditing, true);
+    // focusout приходит до того, как фокус перешёл дальше, поэтому спрашиваем следующим тиком
+    document.addEventListener('focusout', function() { setTimeout(reportEditing, 0); }, true);
+  }
+  reportEditing();
 
   // Галочки у просмотренных серий
   try {
