@@ -23,6 +23,16 @@ class PosterCache(context: Context) {
     private val ui = Handler(Looper.getMainLooper())
     private val pool = Executors.newFixedThreadPool(2)
 
+    /**
+     * Кто ждёт обложку, пока она качается. Один сериал может стоять и в истории, и в отложенных —
+     * без этого списка его обложка скачалась бы дважды. Трогаем только из главного потока.
+     */
+    private val pending = HashMap<String, MutableList<ImageView>>()
+
+    init {
+        pool.execute { trim() }
+    }
+
     private val memory = object : LruCache<String, Bitmap>(
         (Runtime.getRuntime().maxMemory() / 8).toInt().coerceAtLeast(2 * 1024 * 1024)
     ) {
@@ -45,14 +55,41 @@ class PosterCache(context: Context) {
             return
         }
         view.setImageDrawable(null)
+        pending[url]?.let { waiting ->
+            waiting += view // уже качается — просто встанем в очередь за готовой картинкой
+            return
+        }
+        pending[url] = mutableListOf(view)
         pool.execute {
             val bitmap = fromDisk(url) ?: download(url)
             if (bitmap != null) memory.put(url, bitmap)
-            ui.post { if (view.tag == url && bitmap != null) view.setImageBitmap(bitmap) }
+            ui.post {
+                val waiting = pending.remove(url) ?: return@post
+                if (bitmap == null) return@post
+                // Карточки переиспользуются: показываем только там, где ждут этот же адрес
+                waiting.forEach { v -> if (v.tag == url) v.setImageBitmap(bitmap) }
+            }
         }
     }
 
     fun shutdown() = pool.shutdownNow()
+
+    /** Отдать память под картинки: на диске они останутся, обратно разожмутся быстро. */
+    fun trimMemory() = memory.evictAll()
+
+    /**
+     * Подрезать кэш на диске: обложки копятся от всех сериалов, которые когда-либо попадали
+     * в библиотеку, а помнить их дольше самой библиотеки незачем. Оставляем свежие,
+     * пока не упрёмся в число файлов или в общий размер.
+     */
+    private fun trim() {
+        val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
+        var used = 0L
+        files.forEachIndexed { i, f ->
+            used += f.length()
+            if (i >= MAX_FILES || used > MAX_BYTES) f.delete()
+        }
+    }
 
     private fun fileOf(url: String) = File(dir, url.hashCode().toString())
 
@@ -74,8 +111,10 @@ class PosterCache(context: Context) {
         }
         val bytes = conn.inputStream.use { it.readBytes() }
         conn.disconnect()
-        fileOf(url).writeBytes(bytes)
+        // Сохраняем только то, что действительно разобралось в картинку: вместо постера
+        // сайт может отдать страницу с ошибкой, и такой файл кэшировать нечего
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options())
+            ?.also { fileOf(url).writeBytes(bytes) }
     } catch (e: Exception) {
         null // нет сети или картинка не отдалась — карточка останется с плашкой
     }
@@ -89,5 +128,7 @@ class PosterCache(context: Context) {
 
     companion object {
         private const val TIMEOUT_MS = 8000
+        private const val MAX_FILES = 150   // столько сериалов максимум помещается в библиотеку
+        private const val MAX_BYTES = 16L * 1024 * 1024
     }
 }
