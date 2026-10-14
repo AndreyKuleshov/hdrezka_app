@@ -123,11 +123,6 @@ class MainActivity : AppCompatActivity() {
         errorView = findViewById(R.id.errorView)
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
         loadingOverlay = findViewById(R.id.loadingOverlay)
-        // Прошлый сеанс оборвался из-за нехватки памяти — объясняем, почему видео встало
-        if (prefs.getBoolean(KEY_RENDERER_GONE, false)) {
-            prefs.edit().putBoolean(KEY_RENDERER_GONE, false).apply()
-            toast(R.string.renderer_restarted)
-        }
         // Первый запуск: показываем, какие кнопки что делают, — иначе о долгом OK не узнать
         if (!prefs.getBoolean(KEY_HINT_SHOWN, false)) showHint()
         menuPanel = MenuPanel(findViewById<ScrollView>(R.id.menuPanel), findViewById<LinearLayout>(R.id.menuItems))
@@ -231,8 +226,12 @@ class MainActivity : AppCompatActivity() {
              */
             @RequiresApi(Build.VERSION_CODES.O)
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                // Чтобы причина была видна и без отладчика: при следующем запуске скажем об этом
-                prefs.edit().putBoolean(KEY_RENDERER_GONE, true).apply()
+                // Чтобы причина была видна и без отладчика: при следующем запуске скажем об этом.
+                // Заодно помним, что шёл просмотр, — тогда серию продолжим сами
+                prefs.edit()
+                    .putBoolean(KEY_RENDERER_GONE, true)
+                    .putBoolean(KEY_RESUME_PLAY, player.isFullscreen)
+                    .apply()
                 try {
                     player.onBackground() // позиция известна из последнего опроса — пишем её на диск
                     player.release()
@@ -317,6 +316,16 @@ class MainActivity : AppCompatActivity() {
                 !cursorLayout.cursorEnabled -> spatialNav.escape { closed -> if (!closed) navigateBack() }
                 else -> navigateBack()
             }
+        }
+
+        // Прошлый сеанс оборвался из-за нехватки памяти — объясняем, почему видео встало,
+        // и возвращаемся туда же: страница открывается последняя, а место внутри серии
+        // подставит история просмотра
+        if (prefs.getBoolean(KEY_RENDERER_GONE, false)) {
+            val wasWatching = prefs.getBoolean(KEY_RESUME_PLAY, false)
+            prefs.edit().putBoolean(KEY_RENDERER_GONE, false).putBoolean(KEY_RESUME_PLAY, false).apply()
+            toast(R.string.renderer_restarted)
+            if (wasWatching) player.playOnNextPage()
         }
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
@@ -816,6 +825,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CURSOR = "cursor_enabled"
         private const val KEY_SECTIONS = "sections"
         private const val KEY_RENDERER_GONE = "renderer_gone"
+        private const val KEY_RESUME_PLAY = "resume_play"
         private const val KEY_HINT_SHOWN = "hint_shown"
         private const val KEY_UPDATE_CHECKED = "update_checked"
         private const val UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000L // раз в сутки
