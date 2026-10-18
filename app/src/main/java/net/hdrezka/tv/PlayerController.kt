@@ -748,6 +748,9 @@ if (!window.__foxplayer) (function(){
     // поверх, так что в кадре родная лишняя. Гасим прозрачностью, а не display — по её кнопкам
     // приложение иногда нажимает (пропуск рекламы), и хит-тест должен сохраниться
     'html.__foxnc .__foxctl{opacity:0 !important;}' +
+    // Известные контролы гасим сразу, не дожидаясь разметки по геометрии: при переходе
+    // к следующей серии PlayerJS пересобирает панель, и значок успевал мелькнуть в кадре
+    'html.__foxnc #theater_mode,html.__foxnc #cdnplayer_settings{opacity:0 !important;}' +
     '.__foxfs_hide{visibility:hidden !important;}';
   document.documentElement.classList.add('__foxnc');
   (document.head || document.documentElement).appendChild(style);
@@ -833,7 +836,9 @@ if (!window.__foxplayer) (function(){
     var rr = r.getBoundingClientRect();
     if (rr.width < 2 || rr.height < 2) return;
     var cx = (rr.left + rr.right) / 2, cy = (rr.top + rr.bottom) / 2;
-    var all = r.querySelectorAll('pjsdiv,div,svg,canvas,center');
+    // button — тоже контрол: значок «режима театра» в углу кадра это <button>, и без него
+    // он оставался висеть поверх видео после перехода к следующей серии
+    var all = r.querySelectorAll('pjsdiv,div,svg,canvas,center,button');
     for (var i = 0; i < all.length; i++) {
       var e = all[i];
       if (e.classList.contains(CTL) || (e.querySelector && e.querySelector('video'))) continue;
@@ -848,7 +853,11 @@ if (!window.__foxplayer) (function(){
       var play = b.width <= 140 && b.height <= 140 &&
         Math.abs((b.left + b.right) / 2 - cx) < 70 && Math.abs((b.top + b.bottom) / 2 - cy) < 70;
       var menu = e.id === 'cdnplayer_settings' || (e.closest && !!e.closest('#cdnplayer_settings'));
-      if (bar || play || menu) e.classList.add(CTL);
+      // Мелкие значки в верхних углах кадра («режим театра» и подобные). Надпись рекламы
+      // тоже в углу, но её отсекает проверка текста выше
+      var corner = b.width <= 64 && b.height <= 64 && b.top < rr.top + 80 &&
+        (b.left < rr.left + 120 || b.right > rr.right - 120);
+      if (bar || play || menu || corner) e.classList.add(CTL);
     }
   }
 
@@ -885,7 +894,10 @@ if (!window.__foxplayer) (function(){
           var im = document.querySelector('.full_content-poster img');
           return im ? (im.currentSrc || im.src || '') : '';
         })(),
-        href: location.href
+        // Адрес именно серии, а не страницы: серию запускают прямо со страницы сериала,
+        // и location.href тогда указывает на сериал — «Continue watching» открывал бы
+        // страницу вместо самой серии
+        href: (cur && cur.href) || location.href
       };
     },
     play: function() { if (pj()) api('play'); else { var v = video(); if (v) v.play(); } },
