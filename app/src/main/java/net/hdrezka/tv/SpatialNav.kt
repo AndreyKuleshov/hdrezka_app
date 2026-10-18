@@ -228,6 +228,14 @@ if (!window.__foxnav) (function(){
       if (!box || box === document.body) return;
       var r = box.getBoundingClientRect();
       if (r.width * r.height > vpArea * 0.25) return;
+      // Ссылки карточки занимают почти всю её площадь. Если же они лишь островки в большом
+      // контейнере — это не карточка: так номер страницы и стрелка «вперёд» (у них один адрес)
+      // съедали весь блок пагинации, и выбрать страницу было нечем
+      var covered = g.reduce(function(sum, e) {
+        var b = e.getBoundingClientRect();
+        return sum + b.width * b.height;
+      }, 0);
+      if (covered < r.width * r.height * 0.35) return;
       // В карточке не должно быть других кликабельных элементов, иначе они стали бы недоступны
       var others = list.some(function(e) { return g.indexOf(e) < 0 && box.contains(e); });
       if (others) return;
