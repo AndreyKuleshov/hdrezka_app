@@ -87,6 +87,8 @@ class MainActivity : AppCompatActivity() {
     private var loadGeneration = 0
     /** Серию открыли из библиотеки — ждём не страницу, а плеер, как при выборе серии на сайте. */
     private var autoplayRequested = false
+    /** Автозапуск заказан переходом из библиотеки — заставка не должна его сбросить. */
+    private var autoplayFromLibrary = false
     private var autoplayPending = false // загрузка начата выбором серии — ждём не страницу, а плеер
 
     private var customView: View? = null
@@ -511,6 +513,7 @@ class MainActivity : AppCompatActivity() {
         libraryOrNull?.close()
         if (play) {
             autoplayRequested = true
+            autoplayFromLibrary = true
             player.playOnNextPage()
         }
         webView.requestFocus()
@@ -525,8 +528,10 @@ class MainActivity : AppCompatActivity() {
     /** Закрыть страницу заставкой на время загрузки (в полноэкранном видео не мешаем). */
     private fun showLoading() {
         // Сбрасываем до ранних выходов: иначе флаг застрянет и следующая страница
-        // будет ждать плеер вместо своей готовности
-        autoplayRequested = false
+        // будет ждать плеер вместо своей готовности. Переход из библиотеки — исключение:
+        // там флаг ставится прямо перед загрузкой, и гасить его нельзя
+        if (!autoplayFromLibrary) autoplayRequested = false
+        autoplayFromLibrary = false
         autoplayPending = false
         if (player.isFullscreen || customView != null) return
         loadingSince = System.currentTimeMillis()
